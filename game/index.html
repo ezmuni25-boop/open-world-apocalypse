@@ -301,6 +301,16 @@ textarea{width:100%;min-height:150px;resize:vertical;background:#0d0e0b;border:1
 .mats{display:flex;flex-wrap:wrap;gap:6px}.mats em{font:500 .72rem var(--f-mono);font-style:normal;padding:2px 6px;border:1px solid var(--line);color:var(--ash)}
 .mats em.ok{color:#9fc27a;border-color:#3a4a2a}.mats em.no{color:#d98a74;border-color:#4a2a22}
 .qty{display:flex;align-items:center;gap:8px}.qty input{flex:1;min-width:80px}.qty output{font:500 .9rem var(--f-mono);color:var(--bright);min-width:2.5ch}
+.map-box{width:min(980px,100%);gap:10px}
+.map-head{display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+.map-wrap{width:100%;border:1px solid var(--line-2);background:#141511;overflow:hidden}
+.map-wrap canvas{display:block;width:100%;cursor:crosshair}
+.map-legend{display:flex;flex-wrap:wrap;gap:4px 14px;font:400 .74rem var(--f-mono);color:var(--ash)}
+.map-legend i{font-style:normal;display:inline-grid;place-items:center;min-width:18px;height:18px;margin-right:5px;background:#0b0c0a;color:var(--bright);border-radius:50%;font-size:.7rem}
+.map-list{display:flex;flex-direction:column;gap:4px}
+.wprow{display:flex;align-items:center;gap:10px;font:400 .85rem var(--f-mono);color:var(--text)}
+.wprow b{color:#0b0c0a;background:#3bd4ff;min-width:20px;text-align:center}
+.wprow span{flex:1}
 .rest-opts{display:flex;flex-direction:column;gap:6px}
 .ropt{display:flex;gap:10px;align-items:center;border:1px solid var(--line);padding:9px 12px;font:500 1.05rem var(--f-ui);color:var(--text);cursor:pointer}
 .ropt:has(input:checked){border-color:var(--ember);background:var(--ember-faint);color:var(--bright)}
@@ -375,7 +385,7 @@ select:focus-visible{outline:1px dashed var(--ember);outline-offset:2px}
       <button class="mbtn" id="b-load" type="button">Load Saved Game<span class="msub" id="load-sub"></span></button>
       <button class="mbtn" id="b-settings" type="button">Settings</button>
     </nav>
-    <div class="build"><span id="build-l">Working title · Build 0.5 · Pre-alpha</span><button class="upd-note" id="upd-note" type="button" hidden></button></div>
+    <div class="build"><span id="build-l">Working title · Build 0.6 · Pre-alpha</span><button class="upd-note" id="upd-note" type="button" hidden></button></div>
   </div>
 </section>
 
@@ -534,6 +544,15 @@ select:focus-visible{outline:1px dashed var(--ember);outline-offset:2px}
       <div class="d-actions"><button class="btn primary" id="craft-close" type="button">Done</button></div>
     </div>
   </div>
+  <div class="g-panel" id="g-map" hidden role="dialog" aria-modal="true" aria-labelledby="map-h">
+    <div class="g-box map-box">
+      <div class="map-head"><h3 id="map-h">Map of Shibuya</h3><p class="hint" id="map-info" style="margin:0"></p></div>
+      <div class="map-wrap" id="map-wrap"><canvas id="map-cv"></canvas></div>
+      <div class="map-legend" id="map-legend"></div>
+      <div class="map-list" id="map-list"></div>
+      <div class="d-actions"><button class="btn primary" id="map-close" type="button">Close</button></div>
+    </div>
+  </div>
   <div class="g-panel" id="g-rest" hidden role="dialog" aria-modal="true" aria-labelledby="rest-h">
     <div class="g-box">
       <h3 id="rest-h">Rest</h3>
@@ -598,7 +617,8 @@ select:focus-visible{outline:1px dashed var(--ember);outline-offset:2px}
         <button class="btn sm" data-dev="gun" type="button">Give handgun + 24 rounds</button>
         <button class="btn sm" data-dev="mats" type="button">Give crafting materials</button>
         <button class="btn sm" data-dev="food" type="button">Give food, water, bandages</button>
-        <button class="btn sm" data-dev="kb" type="button">Go to Sunrise Mart</button>
+        <button class="btn sm" data-dev="kb" type="button">Go to next building</button>
+        <button class="btn sm" data-dev="maps" type="button">Give large map + fab tool</button>
       </div>
       <div class="hint" id="dev-state" style="white-space:pre-wrap"></div>
       <div class="d-actions"><button class="btn primary" id="dev-close" type="button">Close</button></div>
@@ -1528,7 +1548,8 @@ function aptNumbersOn(f){ const n = []; for (let i=0;i<4;i++) n.push(f*100 + i +
 function allApartmentNumbers(){ const all = []; for (let f=1; f<=FLOORS; f++) aptNumbersOn(f).forEach(n => all.push({ floor:f, number:n })); return all; }
 
 /* ---------------- building floors ---------------- */
-function makeFloor(f, seed, home, npcRooms){
+function makeFloor(f, seed, home, npcRooms, B){
+  B = B || HOME_B; const isHomeB = B.id === "H", floorsN = B.floors || FLOORS;
   const r = rng(seed*31 + f*977), pick = a => a[r()*a.length|0];
   const w = GW, h = GH, I = (x,y) => y*w + x;
   const tiles = new Uint8Array(w*h), ft = new Array(w*h).fill(""), block = new Uint8Array(w*h);
@@ -1616,13 +1637,14 @@ function makeFloor(f, seed, home, npcRooms){
   if (f === 1){
     carve(box(31,26,63,42), "lobby"); carve(box(40,25,54,25), "lobby");
     win(box(44,43,50,43));
-    furn.push({ k:"barricade", solid:true, x0:43, y0:39, x1:51, y1:42, seed:r() });
+    if (!isHomeB){ inter.push({ k:"exit", x0:45*T, y0:40*T, x1:50*T, y1:43*T }); deco.push({ k:"blood", x0:40, y0:30, x1:42, y1:33, seed:r() }); }
+    if (isHomeB) furn.push({ k:"barricade", solid:true, x0:43, y0:39, x1:51, y1:42, seed:r() });
     furn.push({ k:"mailboxes", solid:true, x0:31, y0:28, x1:31, y1:38 });
     furn.push({ k:"bench", solid:true, x0:57, y0:30, x1:61, y1:30 });
     furn.push({ k:"plant", solid:true, x0:62, y0:41, x1:62, y1:41 });
     furn.push({ k:"plant", solid:true, x0:32, y0:41, x1:32, y1:41 });
     deco.push({ k:"blood", x0:47, y0:34, x1:49, y1:36, seed:r() });
-    inter.push({ k:"entrance", x0:43*T, y0:38*T, x1:52*T, y1:43*T });
+    if (isHomeB) inter.push({ k:"entrance", x0:43*T, y0:38*T, x1:52*T, y1:43*T });
     inter.push({ k:"mailboxes", x0:31*T, y0:28*T, x1:32*T, y1:39*T });
   }
   furn.forEach(o => { if (o.solid) each(o.x0,o.y0,o.x1,o.y1,(x,y)=>{ block[I(x,y)] = 1; }); });
@@ -1630,7 +1652,8 @@ function makeFloor(f, seed, home, npcRooms){
   doors.forEach((d, di) => each(d.x0,d.y0,d.x1,d.y1,(x,y)=>{ doorGrid[I(x,y)] = di; }));
   const order = { rug:0, blood:0, futon:1, clothes:2, books:2, trash:3 };
   const statics = furn.slice().sort((a,b)=>(order[a.k]??5)-(order[b.k]??5));
-  const m = { kind:"floor", key:"F"+f, f, w, h, tiles, ft, block, furn, statics, doors, inter, rooms, deco, doorGrid, apts, chunks:new Map(), decals:[], corpses:[], ents:[], picks:[], indoor:true };
+  const m = { kind:"floor", key: floorKey(B.id, f), f, floors: floorsN, bld: B.id, bref: isHomeB ? null : B, w, h, tiles, ft, block, furn, statics, doors, inter, rooms, deco, doorGrid, apts, chunks:new Map(), decals:[], corpses:[], ents:[], picks:[], indoor:true,
+    visited:false, infN: !isHomeB && B.infested ? INF_BY.apartment : null, infZone: "hall", spawn: f === 1 && !isHomeB ? { x:47.5*T, y:39.5*T, a:0 } : { x:6.5*T, y:21.8*T } };
   m.drawTile = (c,x,y) => floorTile(m,c,x,y); m.drawStatic = c => floorStatic(m,c);
   return m;
 }
@@ -1649,6 +1672,16 @@ function floorTile(m, c, x, y){
       c.fillStyle = "#3a3c39"; c.fillRect(X,Y,T,T); c.strokeStyle = "rgba(0,0,0,.4)"; c.lineWidth = 1; c.strokeRect(X+0.5,Y+0.5,T-1,T-1);
     } else if (kind === "vinyl" || kind === "vinyl2"){
       c.fillStyle = (x+y)%2 ? (kind === "vinyl" ? "#8e918c" : "#a3a6a2") : (kind === "vinyl" ? "#878a85" : "#9b9e9a"); c.fillRect(X,Y,T,T); c.fillStyle = "rgba(0,0,0,.12)"; c.fillRect(X,Y,T,1); c.fillRect(X,Y,1,T);
+    } else if (kind === "carpet"){
+      c.fillStyle = (x+y)%2 ? "#3a4048" : "#384046"; c.fillRect(X,Y,T,T); c.fillStyle = "rgba(255,255,255,.03)"; c.fillRect(X, Y, T, 1);
+    } else if (kind === "clinic"){
+      c.fillStyle = "#c9cdca"; c.fillRect(X,Y,T,T); c.strokeStyle = "rgba(60,70,72,.35)"; c.lineWidth = 0.8; c.strokeRect(X+0.5, Y+0.5, T-1, T-1);
+    } else if (kind === "dirty"){
+      c.fillStyle = h2(x,y,3) < 0.5 ? "#3a3530" : "#36312c"; c.fillRect(X,Y,T,T); if (h2(x,y,4) < 0.15){ c.fillStyle = "rgba(0,0,0,.3)"; c.beginPath(); c.arc(X + h2(x,y,5)*T, Y + h2(x,y,6)*T, 3 + h2(x,y,7)*6, 0, 6.28); c.fill(); }
+    } else if (kind === "kitchen"){
+      c.fillStyle = (x+y)%2 ? "#7a4a3a" : "#6e4234"; c.fillRect(X,Y,T,T);
+    } else if (kind === "dining"){
+      c.fillStyle = "#5a4636"; c.fillRect(X,Y,T,T); c.fillStyle = "rgba(0,0,0,.15)"; c.fillRect(X, Y + (y%2)*12, T, 1);
     } else if (kind === "backroom"){
       c.fillStyle = "#3f3d39"; c.fillRect(X,Y,T,T); if (h2(x,y,4) < 0.1){ c.fillStyle = "rgba(0,0,0,.25)"; c.fillRect(X+4,Y+6,10,6); }
     } else if (kind === "lobby"){
@@ -1683,14 +1716,16 @@ function floorTile(m, c, x, y){
 }
 function floorStatic(m, c){
   c.font = "600 22px 'Barlow Condensed', 'Arial Narrow', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
-  c.fillStyle = m.f < FLOORS ? "rgba(230,220,200,.28)" : "rgba(200,80,60,.4)";
-  c.fillText(m.f < FLOORS ? "▲ UP" : "ROOF", 6.5*T, 17*T);
+  const FL = m.floors || FLOORS;
+  c.fillStyle = m.f < FL ? "rgba(230,220,200,.28)" : "rgba(200,80,60,.4)";
+  c.fillText(m.f < FL ? "▲ UP" : "ROOF", 6.5*T, 17*T);
   c.fillStyle = m.f > 1 ? "rgba(230,220,200,.28)" : "rgba(200,80,60,.4)";
   c.fillText(m.f > 1 ? "▼ DOWN" : "BLOCKED", 6.5*T, 27*T);
-  if (m.f === FLOORS){ c.strokeStyle = "#8a8a80"; c.lineWidth = 2; c.beginPath(); for (let i=0;i<=9;i++) c.lineTo(2*T + i*T, 15.2*T + (i%2)*8); c.stroke(); }
+  if (m.f === FL){ c.strokeStyle = "#8a8a80"; c.lineWidth = 2; c.beginPath(); for (let i=0;i<=9;i++) c.lineTo(2*T + i*T, 15.2*T + (i%2)*8); c.stroke(); }
   if (m.f === 1){ const r2 = rng(77); for (let i=0;i<26;i++){ c.fillStyle = ["#3a3530","#4a4038","#2a2724","#5a4a3a"][i%4]; c.save(); c.translate((2+r2()*8.5)*T, (25.2+r2()*3.5)*T); c.rotate(r2()*6); c.fillRect(-8,-5,10+r2()*12,6+r2()*8); c.restore(); } }
   m.statics.forEach(o => drawFurn(c, o));
   m.deco.forEach(o => { if (o.k !== "winlight") drawFurn(c, o); });
+  if (m.office){ c.save(); c.font = "800 30px 'Big Shoulders Stencil Display', Impact, sans-serif"; c.textAlign = "left"; c.fillStyle = "rgba(220,210,190,.18)"; c.fillText(m.f + "F", 14*T, 21*T); c.restore(); m.deco.forEach(o => { if (o.k === "graffiti") drawFurn(c, o); }); return; }
   const ex = 86*T, ey = 20*T;
   c.fillStyle = "#4b5258"; c.fillRect(ex, ey, 6, 4*T);
   c.fillStyle = "#5f676e"; c.fillRect(ex, ey+2, 5, 2*T-3); c.fillRect(ex, ey+2*T+1, 5, 2*T-3);
@@ -1855,7 +1890,7 @@ function makeStreets(seed){
   m.drawTile = (c,x,y) => streetTile(m,c,x,y); m.drawStatic = c => streetStatic(m,c);
   return m;
 }
-const SLAYER = { storefront:0, bdoor:0, sblood:0, papers:1, debris:1, trashpile:2, bike:2, cone:3, car:4, vend:5, roadblock:5, pole:6, tree:7, statue:6, ac:8, tank:8, vent:8, neon:9, sign:10 };
+const SLAYER = { bfoot:0, car2:4, storefront:0, bdoor:0, sblood:0, papers:1, debris:1, trashpile:2, bike:2, cone:3, car:4, vend:5, roadblock:5, pole:6, tree:7, statue:6, ac:8, tank:8, vent:8, neon:9, sign:10 };
 function streetTile(m, c, x, y){
   const X = x*T, Y = y*T, k = m.ft[y*m.w+x], v = h2(x,y,11);
   const kindAt = (xx,yy) => (xx<0||yy<0||xx>=m.w||yy>=m.h) ? "bld" : m.ft[yy*m.w+xx];
@@ -1949,10 +1984,456 @@ function drawStreetThing(c, o, x, y, w, h, cx, cy, r){
     case "tank": ell(c, cx+3, cy+3, w*0.42, h*0.42, "rgba(0,0,0,.3)"); ell(c, cx, cy, w*0.4, h*0.4, "#7d8288"); ell(c, cx-3, cy-3, w*0.2, h*0.2, "#949aa0"); break;
     case "vent": ell(c, cx, cy, 6, 6, "#55554f"); ell(c, cx, cy, 3, 3, "#1c1c1a"); break;
     case "neon": c.save(); c.font = "700 15px system-ui, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "#151515"; c.fillRect(x+2, y+4, w-4, h-8); c.fillStyle = o.hue; c.globalAlpha = 0.35; c.fillText(o.text, cx, cy+1); c.restore(); break;
+    case "car2": drawCar2(c, o); break;
+    case "bfoot": drawBFoot(c, o); break;
     case "bdoor": c.fillStyle = "#1a1a18"; c.fillRect(x, y, w, 8); c.fillStyle = "rgba(140,170,190,.4)"; c.fillRect(x+4, y+1, w-8, 4); c.fillStyle = "#6b5236"; for (let i=0;i<4;i++) c.fillRect(x + 8 + i*27, y-2, 20, 4); c.fillStyle = "rgba(255,122,46,.8)"; c.fillRect(cx-10, y+10, 20, 3); break;
     default: drawShopThing(c, o, x, y, w, h, cx, cy, r); break;
     case "sign": c.save(); c.font = `800 ${o.size}px 'Big Shoulders Stencil Display', Impact, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "rgba(230,220,200,.2)"; c.fillText(o.text, cx, cy); c.restore(); break;
   }
+}
+
+/* =====================================================================
+   CITY OF SHIBUYA — layout traced from the player's drawing (850×680 px)
+   ===================================================================== */
+const CITY_V = 1;
+const CS = 0.42;                                   // tiles per drawing pixel
+const CW = Math.round(850 * CS), CHH = Math.round(680 * CS);
+// Roads: points in drawing pixels, w = road width (tiles), sw = sidewalk (tiles), lanes = draw dashed centre line
+const ROADS = [
+  { n:"Yamate-dōri",      pts:[[0,20],[850,20]], w:11, sw:3, lanes:true, major:true },
+  { n:"Meiji-dōri",       pts:[[714,0],[714,680]], w:11, sw:3, lanes:true, major:true },
+  { n:"Miyamasuzaka",     pts:[[560,470],[714,466],[850,462]], w:10, sw:3, lanes:true, major:true },
+  { n:"Inokashira-dōri",  pts:[[0,206],[110,180],[250,142],[330,110],[460,94],[600,88],[714,76],[850,62]], w:7, sw:2, lanes:true },
+  { n:"Bunkamura-dōri",   pts:[[60,212],[150,296],[230,368],[330,404],[450,436],[560,472]], w:9, sw:3, lanes:true, major:true },
+  { n:"Dōgenzaka",        pts:[[0,590],[60,588],[130,560],[220,520],[350,506],[470,496],[560,478]], w:8, sw:2, lanes:true },
+  { n:"Udagawa back street", pts:[[36,20],[48,120],[60,212],[72,330],[86,430],[112,520],[130,560]], w:5, sw:2 },
+  { n:"Udagawa back street", pts:[[0,418],[86,430]], w:5, sw:2 },
+  { n:"Shinsen-chō lane", pts:[[0,628],[70,620],[280,610],[470,596],[590,596],[714,592]], w:5, sw:2 },
+  { n:"Center Gai",       pts:[[180,192],[300,230],[430,290],[560,324],[714,360]], w:6, sw:2 },
+  { n:"Spain-zaka",       pts:[[378,102],[396,258]], w:4, sw:2 },
+  { n:"Spain-zaka",       pts:[[396,206],[514,162]], w:4, sw:2 },
+  { n:"Kōen-dōri",        pts:[[522,90],[470,326]], w:6, sw:2 },
+  { n:"Kōen-dōri",        pts:[[612,86],[578,338]], w:5, sw:2 },
+  { n:"Jinnan lane",      pts:[[300,232],[282,302],[255,376]], w:4, sw:2 },
+  { n:"Center Gai",       pts:[[228,302],[420,294],[520,320]], w:4, sw:2 },
+  { n:"Center Gai",       pts:[[420,294],[404,420]], w:4, sw:2 },
+  { n:"Center Gai",       pts:[[520,320],[494,446]], w:4, sw:2 },
+  { n:"Center Gai",       pts:[[588,338],[568,460]], w:4, sw:2 },
+  { n:"Dōgenzaka lane",   pts:[[150,300],[178,400],[204,470],[220,520]], w:4, sw:2 },
+  { n:"Dōgenzaka lane",   pts:[[232,556],[470,548],[580,548]], w:4, sw:2 },
+  { n:"Sakuragaoka",      pts:[[580,478],[586,680]], w:6, sw:2 },
+  { n:"Udagawa back street", pts:[[240,146],[188,196]], w:4, sw:2 },
+];
+// Fences ("Blocked off area for now"): drawing coordinates of the traffic cones
+const CONES = [[40,115],[118,72],[243,52],[492,40],[620,35],[695,45],[745,40],[770,62],[30,200],[30,415],[40,580],[40,620],[738,460],[705,575]];
+// Building slots: drawing position, icon from the drawing, rule = star (fixed) | qL (random from store group) | qR (random from building group) | any
+const SLOTS = [
+  { at:[75,140],  icon:"doctor",    rule:"qR" },   // the doctor's office with the "?"
+  { at:[172,112], icon:"business",  rule:"any" },
+  { at:[345,152], icon:"fastfood",  rule:"qL" },
+  { at:[432,126], icon:"grocery",   rule:"any" },
+  { at:[552,112], icon:"apartment", rule:"any" },
+  { at:[624,122], icon:"apartment", rule:"any" },
+  { at:[262,242], icon:"fastfood",  rule:"qL" },
+  { at:[470,252], icon:"home",      rule:"star" },
+  { at:[342,280], icon:"konbini",   rule:"any" },
+  { at:[150,346], icon:"pharmacy",  rule:"any" },
+  { at:[272,350], icon:"grocery",   rule:"any" },
+  { at:[340,366], icon:"abandoned", rule:"any" },
+  { at:[448,340], icon:"business",  rule:"any" },
+  { at:[440,388], icon:"abandoned", rule:"any" },
+  { at:[540,356], icon:"konbini",   rule:"any" },
+  { at:[662,288], icon:"konbini",   rule:"any" },
+  { at:[238,424], icon:"fastfood",  rule:"qL" },
+  { at:[320,440], icon:"doctor",    rule:"any" },
+  { at:[162,520], icon:"drugstore", rule:"qL" },
+  { at:[505,522], icon:"konbini",   rule:"any" },
+  { at:[640,524], icon:"subway",    rule:"star" },
+  { at:[322,588], icon:"drugstore", rule:"qL" },
+];
+const STORE_KINDS = ["grocery","konbini","fastfood","drugstore","pharmacy"];
+const TOWER_KINDS = ["apartment","business","abandoned","doctor"];
+const BKIND = {
+  grocery:   { label:"Grocery store", sz:[17,12], store:true, roof:"#5a4f3c", accent:"#e8a33a", jp:"スーパー" },
+  konbini:   { label:"Convenience store", sz:[11,8], store:true, roof:"#4a4c48", accent:"#2a9a5a", jp:"コンビニ" },
+  fastfood:  { label:"Fast food", sz:[10,8], store:true, roof:"#5a3a30", accent:"#d8402a", jp:"バーガー" },
+  drugstore: { label:"Drug store", sz:[9,7], store:true, roof:"#3e4a52", accent:"#e8d23a", jp:"ドラッグ" },
+  pharmacy:  { label:"Pharmacy", sz:[10,8], store:true, roof:"#3c4a40", accent:"#3aa04a", jp:"薬局" },
+  apartment: { label:"Apartment building", sz:[15,11], floors:[3,7], roof:"#45413a", accent:"#c8b89a", jp:"マンション" },
+  business:  { label:"Office building", sz:[14,12], floors:[2,6], roof:"#3a4048", accent:"#7fa3b8", jp:"オフィス" },
+  abandoned: { label:"Abandoned building", sz:[13,10], floors:[2,6], roof:"#33302b", accent:"#6a6258", jp:"" },
+  doctor:    { label:"Doctor's office", sz:[13,10], floors:[1,4], roof:"#d8d6cc", accent:"#3a7ab8", jp:"クリニック" },
+  home:      { label:"Maison Udagawa", sz:[19,15], roof:"#3d3732", accent:"#ff7a2e", jp:"" },
+  subway:    { label:"Shibuya Station", sz:[22,12], roof:"#34373c", accent:"#3a7a5a", jp:"渋谷駅" },
+};
+const NAMES = {
+  grocery:["Hanamaru Supermarket","Maruetsu Fresh","Daily Table Market","Aozora Super"],
+  konbini:["Sunrise Mart","Lucky Mart","Daily Plus","Corner 24"],
+  fastfood:["Kitsune Burger","Gyūdon Ichiban","Tsuru Fried Chicken","Shibuya Ramen Stand"],
+  drugstore:["Matsuba Drug","Hikari Drug","Yume Drugstore"],
+  pharmacy:["Kokoro Pharmacy"],
+  apartment:["Heights Jinnan","Udagawa Court","Palace Sakura","Grand Maison Kōen","Shibuya Residence","Villa Hachikō","Mezon Aoi"],
+  business:["Udagawa Tower","Shibuya Cross Building","Kōen-dōri Office Center","Dōgen Square","Miyamasu Building"],
+  abandoned:["Old Hotel Tsubaki","Former Sanko Building","Closed Pachinko Parlor","Gutted Karaoke Building","Old Kimura Building"],
+  doctor:["Aoba Clinic"],
+};
+function assignCity(seed){
+  const r = rng(Math.floor(h2(seed % 1000003, 77, 5) * 2147483000) + 1), pick = a => a[r()*a.length|0];
+  const out = SLOTS.map(s => ({ slot:s, kind:null }));
+  let pharm = 0, doc = 0; const cnt = {};
+  const order = out.map((_, i) => i).sort(() => r() - 0.5);
+  for (const i of order){
+    const o = out[i], s = o.slot;
+    if (s.rule === "star"){ o.kind = s.icon; continue; }
+    let pool = s.rule === "qL" ? STORE_KINDS : s.rule === "qR" ? TOWER_KINDS : STORE_KINDS.concat(TOWER_KINDS);
+    pool = pool.filter(k => !(k === "pharmacy" && pharm) && !(k === "doctor" && doc) && (cnt[k] || 0) < 4);
+    const w = k => s.rule === "any" ? (k === s.icon ? 6 : 1) : 1;
+    let tot = pool.reduce((a,k) => a + w(k), 0), v = r()*tot; let k = pool[0];
+    for (const c of pool){ v -= w(c); if (v <= 0){ k = c; break; } }
+    o.kind = k; cnt[k] = (cnt[k] || 0) + 1; if (k === "pharmacy") pharm++; if (k === "doctor") doc++;
+  }
+  if (!out.some(o => o.kind === "konbini" || o.kind === "grocery")){ const a = out.find(o => o.slot.rule === "any"); if (a) a.kind = "konbini"; }
+  const used = {};
+  out.forEach((o, i) => {
+    o.id = o.kind === "home" ? "H" : "B" + i;
+    const pool = (NAMES[o.kind] || [BKIND[o.kind].label]).filter(n => !used[n]);
+    o.name = o.kind === "home" ? "Maison Udagawa" : o.kind === "subway" ? "Shibuya Station" : (pool.length ? pick(pool) : pick(NAMES[o.kind]));
+    used[o.name] = 1;
+    const fr = BKIND[o.kind].floors; o.floors = fr ? fr[0] + Math.floor(r() * (fr[1] - fr[0] + 1)) : (o.kind === "home" ? FLOORS : 1);
+    o.tower = !!fr || o.kind === "home";
+    o.infested = o.kind === "apartment" && r() < 0.5;
+  });
+  return out;
+}
+function segDist(px, py, ax, ay, bx, by){ const dx = bx-ax, dy = by-ay, l2 = dx*dx + dy*dy; let t = l2 ? ((px-ax)*dx + (py-ay)*dy)/l2 : 0; t = clamp(t, 0, 1); const qx = ax + t*dx, qy = ay + t*dy; return [Math.hypot(px-qx, py-qy), qx, qy, t]; }
+function roadDist(rd, x, y){ let best = 1e9; const p = rd.tp; for (let i=0;i<p.length-1;i++){ const d = segDist(x, y, p[i][0], p[i][1], p[i+1][0], p[i+1][1])[0]; if (d < best) best = d; } return best; }
+function makeCityMap(seed){
+  const w = CW, h = CHH, I = (x,y) => y*w + x, inMap = (x,y) => x>=0 && y>=0 && x<w && y<h;
+  const tiles = new Uint8Array(w*h), ft = new Array(w*h).fill("bld"), block = new Uint8Array(w*h), roadOf = new Int16Array(w*h).fill(-1);
+  const r = rng(Math.floor(h2(seed % 1000003, 91, 3) * 2147483000) + 1), pick = a => a[r()*a.length|0];
+  const furn = [], inter = [];
+  const roads = ROADS.map((R, i) => Object.assign({}, R, { i, tp: R.pts.map(([x,y]) => [x*CS, y*CS]) }));
+  roads.forEach(R => { const xs = R.tp.map(p => p[0]), ys = R.tp.map(p => p[1]), e = R.w/2 + R.sw; R.edge = e; R.bb = [Math.min(...xs) - e, Math.min(...ys) - e, Math.max(...xs) + e, Math.max(...ys) + e]; });
+  // how far a point (in tiles) is from the outer sidewalk edge of the nearest road (0 = right on the curb line of the lot)
+  const roadDistMin = (x, y) => { let b = 1e9; roads.forEach(R => { if (x < R.bb[0] - 3 || y < R.bb[1] - 3 || x > R.bb[2] + 3 || y > R.bb[3] + 3) return; b = Math.min(b, roadDist(R, x, y) - R.edge); }); return b; };
+  // rasterise roads + sidewalks
+  roads.forEach(R => {
+    const xs = R.tp.map(p => p[0]), ys = R.tp.map(p => p[1]), m = R.w/2 + R.sw + 1;
+    const x0 = Math.max(0, Math.floor(Math.min(...xs) - m)), x1 = Math.min(w-1, Math.ceil(Math.max(...xs) + m));
+    const y0 = Math.max(0, Math.floor(Math.min(...ys) - m)), y1 = Math.min(h-1, Math.ceil(Math.max(...ys) + m));
+    for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){
+      const d = roadDist(R, x+0.5, y+0.5), i = I(x,y);
+      if (d < R.w/2){ ft[i] = "road"; roadOf[i] = R.i; }
+      else if (d < R.w/2 + R.sw && ft[i] === "bld"){ ft[i] = "walk"; if (roadOf[i] < 0) roadOf[i] = R.i; }
+    }
+  });
+  // Hachikō square between the crossing and the station
+  const cr = { x:560*CS, y:472*CS }, sq = { x:606*CS, y:500*CS };
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++){ const i = I(x,y);
+    if (Math.hypot(x+0.5-sq.x, (y+0.5-sq.y)*1.4) < 9 && ft[i] === "bld") ft[i] = "plaza"; }
+  for (let i=0;i<w*h;i++) tiles[i] = ft[i] === "bld" ? WALL : FLOOR;
+  const free = (x0,y0,x1,y1,kinds) => { for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){ if (!inMap(x,y) || tiles[I(x,y)] !== FLOOR || block[I(x,y)] || (kinds && !kinds.includes(ft[I(x,y)]))) return false; } return true; };
+  const solidify = o => { for (let y=o.y0;y<=o.y1;y++) for (let x=o.x0;x<=o.x1;x++) if (inMap(x,y)) block[I(x,y)] = 1; };
+  const add = (o, solid) => { o.solid = !!solid; if (!o.seed) o.seed = r(); furn.push(o); if (solid) solidify(o); return o; };
+  // fences across roads at each cone, plus at every map edge
+  const fences = [];
+  const fenceAt = (px, py) => {
+    let best = null, bd = 1e9;
+    roads.forEach(R => { const p = R.tp; for (let i=0;i<p.length-1;i++){ const [d, qx, qy] = segDist(px, py, p[i][0], p[i][1], p[i+1][0], p[i+1][1]); if (d < bd){ bd = d; best = { R, qx, qy, dx: p[i+1][0]-p[i][0], dy: p[i+1][1]-p[i][1] }; } } });
+    if (!best || bd > 14) return;
+    const L = Math.hypot(best.dx, best.dy) || 1, nx = -best.dy/L, ny = best.dx/L, half = best.R.w/2 + best.R.sw + 1.2;
+    const f = { x0: best.qx - nx*half, y0: best.qy - ny*half, x1: best.qx + nx*half, y1: best.qy + ny*half };
+    fences.push(f);
+    for (let s = -half; s <= half; s += 0.25) for (let k = -0.6; k <= 0.6; k += 0.3){
+      const x = Math.floor(best.qx + nx*s + best.dx/L*k), y = Math.floor(best.qy + ny*s + best.dy/L*k); if (inMap(x,y) && tiles[I(x,y)] === FLOOR){ block[I(x,y)] = 1; ft[I(x,y)] = ft[I(x,y)] === "road" ? "road" : ft[I(x,y)]; }
+    }
+  };
+  CONES.forEach(([x,y]) => fenceAt(x*CS, y*CS));
+  // edge fences: any road that leaves the map gets fenced 6 tiles in
+  roads.forEach(R => { [R.tp[0], R.tp[R.tp.length-1]].forEach(([x,y]) => { if (x < 2 || y < 2 || x > w-3 || y > h-3){ const cx = clamp(x, 6, w-7), cy = clamp(y, 6, h-7); fenceAt(cx, cy); } }); });
+  // keep the whole top avenue (Yamate-dōri) out of reach: fence along its south side
+  for (let x=0;x<w;x++){ const y = Math.round(20*CS + 11/2 + 3); if (inMap(x,y) && tiles[I(x,y)] === FLOOR){ block[I(x,y)] = 1; } }
+  fences.push({ x0:0, y0:20*CS + 11/2 + 3.5, x1:w, y1:20*CS + 11/2 + 3.5, long:true });
+  // special buildings
+  const blds = assignCity(seed);
+  const placeB = (b) => {
+    const [cx, cy] = [b.slot.at[0]*CS, b.slot.at[1]*CS];
+    for (let shrink = 0; shrink < 9; shrink++){
+      const bw = Math.max(5, BKIND[b.kind].sz[0] - shrink), bh = Math.max(4, BKIND[b.kind].sz[1] - shrink);
+      let best = null, bd = 1e9, R = 14 + shrink*2;
+      for (let oy = -R; oy <= R; oy++) for (let ox = -R; ox <= R; ox++){
+        const x0 = Math.round(cx - bw/2 + ox), y0 = Math.round(cy - bh/2 + oy), x1 = x0 + bw - 1, y1 = y0 + bh - 1;
+        if (x0 < 1 || y0 < 1 || x1 >= w-1 || y1 >= h-1) continue;
+        let ok = true; for (let y=y0;y<=y1 && ok;y++) for (let x=x0;x<=x1;x++){ if (ft[I(x,y)] !== "bld" || block[I(x,y)] === 2){ ok = false; break; } }
+        if (!ok) continue;
+        const sides = [[y0-1,"N"],[y1+1,"S"]].map(([yy, s]) => { let c = 0; for (let x=x0+1;x<x1;x++) if (inMap(x,yy) && ft[I(x,yy)] !== "bld") c++; return [c, s]; })
+          .concat([[x0-1,"W"],[x1+1,"E"]].map(([xx, s]) => { let c = 0; for (let y=y0+1;y<y1;y++) if (inMap(xx,y) && ft[I(xx,y)] !== "bld") c++; return [c, s]; }));
+        const sd = sides.sort((a,b) => b[0] - a[0])[0]; if (sd[0] < 3) continue;
+        const d = Math.hypot(ox, oy) - sd[0]*0.15;
+        if (d < bd){ bd = d; best = { x0, y0, x1, y1, side: sd[1] }; }
+      }
+      if (best){ Object.assign(b, best); for (let y=b.y0;y<=b.y1;y++) for (let x=b.x0;x<=b.x1;x++) block[I(x,y)] = 2; return true; }
+    }
+    return false;
+  };
+  const placed = blds.filter(b => placeB(b));
+  placed.forEach(b => {
+    const S = b.side, mx = Math.round((b.x0 + b.x1)/2), my = Math.round((b.y0 + b.y1)/2);
+    const d = S === "N" ? { x:mx, y:b.y0, ox:0, oy:-1 } : S === "S" ? { x:mx, y:b.y1, ox:0, oy:1 } : S === "W" ? { x:b.x0, y:my, ox:-1, oy:0 } : { x:b.x1, y:my, ox:1, oy:0 };
+    b.door = d;
+    b.out = { x:(d.x + 0.5 + d.ox*1.6)*T, y:(d.y + 0.5 + d.oy*1.6)*T, a: Math.atan2(d.ox, -d.oy) };
+    const ix0 = (Math.min(d.x, d.x + d.ox*2) - (d.oy ? 2 : 0))*T, iy0 = (Math.min(d.y, d.y + d.oy*2) - (d.ox ? 2 : 0))*T;
+    inter.push({ k:"bld", id:b.id, x0:ix0, y0:iy0, x1:ix0 + (d.oy ? 5 : 3)*T, y1:iy0 + (d.ox ? 5 : 3)*T });
+    add({ k:"bfoot", b, x0:b.x0, y0:b.y0, x1:b.x1, y1:b.y1 }, false);
+  });
+  for (let i=0;i<w*h;i++) if (block[i] === 2) block[i] = 0;
+  // street furniture: cars along roads
+  roads.forEach(R => {
+    const p = R.tp;
+    for (let s=0;s<p.length-1;s++){
+      const [ax, ay] = p[s], [bx, by] = p[s+1], L = Math.hypot(bx-ax, by-ay), ux = (bx-ax)/L, uy = (by-ay)/L, nx = -uy, ny = ux;
+      for (let t = 6 + r()*10; t < L - 6; t += 9 + r()*16){
+        if (r() > (R.major ? 0.55 : 0.35) || R.w < 5) continue;
+        const lane = (r() < 0.5 ? -1 : 1) * (R.w/4), x = ax + ux*t + nx*lane, y = ay + uy*t + ny*lane;
+        if (Math.hypot(x - cr.x, y - cr.y) < 14) continue;
+        const ang = Math.atan2(uy, ux) + (lane > 0 ? Math.PI : 0) + (r()-0.5)*0.25;
+        const kind = r() < 0.15 ? "taxi" : r() < 0.15 ? "van" : "car";
+        const c = { k:"car2", kind, cx:x*T, cy:y*T, ang, color: pick(CAR_COLS), door: r() < 0.3, x0:Math.floor(x-4), y0:Math.floor(y-4), x1:Math.ceil(x+4), y1:Math.ceil(y+4) };
+        let clash = false; for (let k=-3;k<=3 && !clash;k++) for (let j=-1;j<=1;j++){ const tx = Math.floor(x + ux*k + nx*j), ty = Math.floor(y + uy*k + ny*j); if (!inMap(tx,ty) || block[I(tx,ty)] || ft[I(tx,ty)] !== "road") clash = true; }
+        if (clash) continue;
+        for (let k=-3;k<=3;k++) for (let j=-1;j<=1;j++){ const tx = Math.floor(x + ux*k + nx*j), ty = Math.floor(y + uy*k + ny*j); block[I(tx,ty)] = 1; }
+        c.solid = false; c.seed = r(); furn.push(c);
+      }
+    }
+  });
+  // a few abandoned cars stranded in the scramble
+  for (let i=0;i<4;i++){ const x = cr.x + (r()-0.5)*14, y = cr.y + (r()-0.5)*8, ang = r()*6.28;
+    let ok = true; for (let k=-3;k<=3 && ok;k++) for (let j=-1;j<=1;j++){ const tx = Math.floor(x + Math.cos(ang)*k - Math.sin(ang)*j), ty = Math.floor(y + Math.sin(ang)*k + Math.cos(ang)*j); if (!inMap(tx,ty) || block[I(tx,ty)] || ft[I(tx,ty)] !== "road") ok = false; }
+    if (!ok) continue; for (let k=-3;k<=3;k++) for (let j=-1;j<=1;j++){ block[I(Math.floor(x + Math.cos(ang)*k - Math.sin(ang)*j), Math.floor(y + Math.sin(ang)*k + Math.cos(ang)*j))] = 1; }
+    furn.push({ k:"car2", kind: r() < 0.3 ? "taxi" : "car", cx:x*T, cy:y*T, ang, color: pick(CAR_COLS), door:true, seed:r(), x0:Math.floor(x-4), y0:Math.floor(y-4), x1:Math.ceil(x+4), y1:Math.ceil(y+4) }); }
+  // vending machines against building walls
+  let vend = 0;
+  for (let k=0; k<9000 && vend<70; k++){
+    const x = r()*w|0, y = r()*h|0; if (!free(x,y,x+1,y,["walk"])) continue;
+    const rowB = yy => inMap(x-1,yy) && inMap(x+2,yy) && [x-1,x,x+1,x+2].every(xx => ft[I(xx,yy)] === "bld");
+    const north = rowB(y-1) && roadDistMin(x+1, y) > 1.2, south = rowB(y+1) && roadDistMin(x+1, y+1) > 1.2;
+    if (!north && !south) continue;
+    add({ k:"vend", x0:x, y0:y, x1:x+1, y1:y, face: north ? 1 : -1, color: pick(["#d0d0ca","#b8322a","#2a5a9a","#e0e0dc","#3a6a3a"]), lit: r() < 0.3 }, true); vend++;
+  }
+  // street trees on major roads, utility poles + power lines on the smaller streets
+  const poles = [];
+  roads.forEach(R => {
+    const p = R.tp, off = R.w/2 + R.sw*0.5;
+    for (let s=0;s<p.length-1;s++){
+      const [ax, ay] = p[s], [bx, by] = p[s+1], L = Math.hypot(bx-ax, by-ay), ux = (bx-ax)/L, uy = (by-ay)/L, nx = -uy, ny = ux;
+      const step = R.major ? 13 : 15;
+      let prev = null;
+      for (let t = 4; t < L - 2; t += step){
+        const side = R.major ? (Math.floor(t/step) % 2 ? 1 : -1) : 1, x = Math.floor(ax + ux*t + nx*off*side), y = Math.floor(ay + uy*t + ny*off*side);
+        if (!free(x, y, x, y, ["walk"])) { prev = null; continue; }
+        if (R.major){ if (free(x, y, x+1, y+1, ["walk"])) add({ k:"tree", x0:x, y0:y, x1:x+1, y1:y+1 }, true); }
+        else { const o = add({ k:"pole", x0:x, y0:y, x1:x, y1:y }, true); if (prev) poles.push([prev, o]); prev = o; }
+      }
+    }
+  });
+  add({ k:"statue", x0:Math.floor(sq.x), y0:Math.floor(sq.y - 1), x1:Math.floor(sq.x) + 1, y1:Math.floor(sq.y) + 1 }, true);
+  const scatter = (n, kind, kinds, sz) => { for (let k=0, c=0; k<n*40 && c<n; k++){ const x = r()*w|0, y = r()*h|0; if (free(x,y,x+sz-1,y+sz-1,kinds)){ add({ k:kind, x0:x, y0:y, x1:x+sz-1, y1:y+sz-1, rot:r()*6.28 }, false); c++; } } };
+  scatter(160, "trashpile", ["walk"], 1); scatter(90, "bike", ["walk"], 1); scatter(45, "cone", ["road"], 1);
+  scatter(80, "sblood", null, 2); scatter(220, "papers", null, 1); scatter(90, "debris", null, 1);
+  // rooftop details on the generic buildings
+  const lotOf = (x,y) => ((x/13)|0)*1000 + ((y/10)|0);
+  for (let lx = 0; lx < w/13; lx++) for (let ly = 0; ly < h/10; ly++){
+    const n = 1 + (r()*3|0);
+    for (let k=0;k<n;k++){
+      const x = lx*13 + 2 + (r()*9|0), y = ly*10 + 2 + (r()*6|0); if (!inMap(x+3,y+1)) continue;
+      let ok = true; for (let yy=y; yy<=y+1 && ok; yy++) for (let xx=x; xx<=x+3; xx++) if (ft[I(xx,yy)] !== "bld" || placed.some(b => xx >= b.x0-1 && xx <= b.x1+1 && yy >= b.y0-1 && yy <= b.y1+1)) ok = false;
+      if (!ok) continue;
+      const kind = pick(["ac","ac","tank","vent","neon","neon"]);
+      add({ k:kind, x0:x, y0:y, x1:kind === "tank" ? x+1 : kind === "neon" ? x+3 : x, y1:kind === "tank" ? y+1 : y, text: pick(NEON), hue: pick(["#ff3b6b","#3bd4ff","#ffcf3b","#9b6bff","#5bff8b"]) }, false);
+    }
+  }
+  const home = placed.find(b => b.kind === "home");
+  // smooth (vector) street shape: forecourts in front of every building door, then per-tile open / partial / closed
+  const aprons = placed.map(b => { const S = b.side, D = 2.4;
+    return S === "N" ? { x0:b.x0, x1:b.x1+1, y0:b.y0-D, y1:b.y0 } : S === "S" ? { x0:b.x0, x1:b.x1+1, y0:b.y1+1, y1:b.y1+1+D }
+         : S === "W" ? { x0:b.x0-D, x1:b.x0, y0:b.y0, y1:b.y1+1 } : { x0:b.x1+1, x1:b.x1+1+D, y0:b.y0, y1:b.y1+1 }; });
+  const openAt = (x, y) => {
+    let best = 9 - Math.hypot(x - sq.x, (y - sq.y)*1.4);
+    for (const R of roads){ if (x < R.bb[0] - 2 || y < R.bb[1] - 2 || x > R.bb[2] + 2 || y > R.bb[3] + 2) continue; const v = R.edge - roadDist(R, x, y); if (v > best) best = v; }
+    for (const a of aprons){ const dx = Math.max(a.x0 - x, 0, x - a.x1), dy = Math.max(a.y0 - y, 0, y - a.y1); const v = (dx || dy) ? -Math.hypot(dx, dy) : Math.min(x - a.x0, a.x1 - x, y - a.y0, a.y1 - y); if (v > best) best = v; }
+    return best;
+  };
+  const fp = new Uint8Array(w*h); placed.forEach(b => { for (let y=b.y0;y<=b.y1;y++) for (let x=b.x0;x<=b.x1;x++) fp[I(x,y)] = 1; });
+  const part = new Uint8Array(w*h), full = new Uint8Array(w*h);
+  for (let y=0;y<h;y++) for (let x=0;x<w;x++){
+    const i = I(x,y); if (fp[i]) continue;
+    const c0 = openAt(x+0.5,y+0.5);
+    if (c0 > 1.05){ full[i] = 1; if (ft[i] === "bld"){ ft[i] = "walk"; tiles[i] = FLOOR; } continue; }
+    if (c0 < -1.05){ if (ft[i] !== "bld"){ tiles[i] = WALL; ft[i] = "bld"; } continue; }
+    const v = [c0, openAt(x,y), openAt(x+1,y), openAt(x,y+1), openAt(x+1,y+1), openAt(x+0.5,y), openAt(x+0.5,y+1), openAt(x,y+0.5), openAt(x+1,y+0.5)];
+    const mx = Math.max(...v), mn = Math.min(...v);
+    if (mn > 0){ full[i] = 1; if (ft[i] === "bld"){ ft[i] = "walk"; tiles[i] = FLOOR; } }
+    else if (mx > 0){ part[i] = 1; if (tiles[i] !== FLOOR){ tiles[i] = FLOOR; } }
+    else if (ft[i] !== "bld"){ tiles[i] = WALL; ft[i] = "bld"; }
+  }
+  // cache the exact street edge inside every partial tile on a 5x5 grid, so collision / sight checks are cheap
+  const pidx = new Int32Array(w*h).fill(-1); let np = 0; for (let i=0;i<w*h;i++) if (part[i]) pidx[i] = np++;
+  const pv = new Float32Array(np*25);
+  for (let i=0;i<w*h;i++){ const k = pidx[i]; if (k < 0) continue; const x = i % w, y = (i / w)|0; for (let a=0;a<5;a++) for (let c2=0;c2<5;c2++) pv[k*25 + a*5 + c2] = openAt(x + c2/4, y + a/4); }
+  const openFast = (x, y) => {
+    const tx = Math.floor(x), ty = Math.floor(y); if (tx < 0 || ty < 0 || tx >= w || ty >= h) return -1;
+    const i = ty*w + tx, k = pidx[i]; if (k < 0) return full[i] ? 1 : -1;
+    const fx = (x - tx)*4, fy = (y - ty)*4, ix = Math.min(3, fx|0), iy = Math.min(3, fy|0), ux = fx - ix, uy = fy - iy, o = k*25 + iy*5 + ix;
+    return (pv[o]*(1-ux) + pv[o+1]*ux)*(1-uy) + (pv[o+5]*(1-ux) + pv[o+6]*ux)*uy;
+  };
+  for (let k = furn.length - 1; k >= 0; k--){ const o = furn[k]; if (["ac","tank","vent","neon"].includes(o.k)){ let bad = false; for (let y=o.y0;y<=o.y1;y++) for (let x=o.x0;x<=o.x1;x++) if (!inMap(x,y) || ft[I(x,y)] !== "bld" || part[I(x,y)]) bad = true; if (bad) furn.splice(k, 1); } }
+  const statics = furn.slice().sort((a,b) => (SLAYER[a.k]??5) - (SLAYER[b.k]??5));
+  const m = { kind:"street", key:"ST", part, full, openAt: openFast, aprons, w, h, tiles, ft, block, furn, statics, doors:[], inter, rooms:[], deco:[], doorGrid:new Int16Array(w*h).fill(-1), roads, poles, fences, cross: cr, square: sq,
+    chunks:new Map(), decals:[], corpses:[], ents:[], picks:[], indoor:false, blds: placed, lot: lotOf, roadOf, cityV: CITY_V,
+    spawn: home.out, homeB: home };
+  m.area = (tx, ty) => {
+    if (Math.hypot(tx - cr.x, ty - cr.y) < 12) return "Shibuya Crossing";
+    if (Math.hypot(tx - sq.x, ty - sq.y) < 11) return "Hachikō Square";
+    const b = placed.find(b => tx >= b.x0 - 3 && tx <= b.x1 + 3 && ty >= b.y0 - 3 && ty <= b.y1 + 3); if (b && b.kind !== "home") return "Outside " + b.name;
+    const ri = inMap(tx,ty) ? roadOf[I(tx,ty)] : -1; if (ri >= 0) return roads[ri].n;
+    let best = "Udagawa-chō", bd = 1e9; roads.forEach(R => { const d = roadDist(R, tx, ty); if (d < bd){ bd = d; best = R.n; } }); return best;
+  };
+  m.drawTile = (c,x,y) => cityTile(m,c,x,y);
+  m.drawStatic = (c, rect) => cityStatic(m, c, rect);
+  return m;
+}
+function cityTile(m, c, x, y){
+  const X = x*T, Y = y*T, i = y*m.w+x, v = h2(x,y,11);
+  if (m.full[i]){ c.fillStyle = "#4b4944"; c.fillRect(X,Y,T,T); return; }
+  const lot = m.lot(x,y);
+  c.fillStyle = ROOF[(h2(lot, 7, 3)*ROOF.length)|0]; c.fillRect(X,Y,T,T);
+  c.fillStyle = `rgba(0,0,0,${0.03+v*0.05})`; c.fillRect(X + v*14, Y + h2(y,x,5)*14, 8, 8);
+  c.fillStyle = "rgba(0,0,0,.5)";
+  if (y > 0 && m.lot(x,y-1) !== lot) c.fillRect(X,Y,T,2); if (x > 0 && m.lot(x-1,y) !== lot) c.fillRect(X,Y,2,T);
+}
+const PAT = {};
+function groundPat(c, kind){
+  if (!PAT[kind]){ const n = kind === "plaza" ? 72 : 48, cv = document.createElement("canvas"); cv.width = cv.height = n; const g = cv.getContext("2d");
+    g.fillStyle = kind === "plaza" ? "#57544d" : "#4b4944"; g.fillRect(0,0,n,n); g.fillStyle = kind === "plaza" ? "rgba(0,0,0,.14)" : "rgba(0,0,0,.18)"; g.fillRect(0,0,1,n); g.fillRect(0,0,n,1); PAT[kind] = cv; }
+  return c.createPattern(PAT[kind], "repeat");
+}
+// offset a polyline sideways (mitred), for the edge lines of the big avenues
+function offsetLine(p, o){
+  return p.map((pt, i) => {
+    const a = p[Math.max(0, i-1)], b = p[Math.min(p.length-1, i+1)];
+    const n1 = i > 0 ? norm2(pt[0]-a[0], pt[1]-a[1]) : null, n2 = i < p.length-1 ? norm2(b[0]-pt[0], b[1]-pt[1]) : null;
+    let nx, ny, k = 1;
+    if (n1 && n2){ nx = -(n1[1] + n2[1]); ny = n1[0] + n2[0]; const L = Math.hypot(nx, ny) || 1; nx /= L; ny /= L; k = 1 / Math.max(0.5, nx*(-n1[1]) + ny*n1[0]); }
+    else { const d = n1 || n2; nx = -d[1]; ny = d[0]; }
+    return [pt[0] + nx*o*k, pt[1] + ny*o*k];
+  });
+}
+function norm2(x, y){ const L = Math.hypot(x, y) || 1; return [x/L, y/L]; }
+// the streets, sidewalks, forecourts and Hachikō plaza as smooth shapes (S = pixels per tile)
+function drawCityGround(m, c, S, rect, flat){
+  const near = R => !rect || !(R.bb[2]*S + 20 < rect.x0 || R.bb[0]*S - 20 > rect.x1 || R.bb[3]*S + 20 < rect.y0 || R.bb[1]*S - 20 > rect.y1);
+  const rs = m.roads.filter(near), ap = m.aprons.filter(a => !rect || !(a.x1*S + 20 < rect.x0 || a.x0*S - 20 > rect.x1 || a.y1*S + 20 < rect.y0 || a.y0*S - 20 > rect.y1));
+  const path = R => { c.beginPath(); R.tp.forEach(([x,y], i) => i ? c.lineTo(x*S, y*S) : c.moveTo(x*S, y*S)); };
+  const plaza = () => { c.beginPath(); c.ellipse(m.square.x*S, m.square.y*S, 9*S, 9/1.4*S, 0, 0, 6.2832); };
+  c.save(); c.lineJoin = "round"; c.lineCap = "round";
+  if (!flat){
+    // soft shadow where buildings meet the sidewalk
+    c.strokeStyle = "rgba(0,0,0,.42)"; rs.forEach(R => { c.lineWidth = R.edge*2*S + 7; path(R); c.stroke(); });
+    c.fillStyle = "rgba(0,0,0,.42)"; ap.forEach(a => c.fillRect(a.x0*S - 3.5, a.y0*S - 3.5, (a.x1-a.x0)*S + 7, (a.y1-a.y0)*S + 7)); plaza(); c.lineWidth = 7; c.stroke();
+  }
+  const walk = flat ? "#5c5850" : groundPat(c, "walk");
+  c.strokeStyle = walk; rs.forEach(R => { c.lineWidth = R.edge*2*S; path(R); c.stroke(); });
+  c.fillStyle = walk; ap.forEach(a => c.fillRect(a.x0*S, a.y0*S, (a.x1-a.x0)*S, (a.y1-a.y0)*S));
+  c.fillStyle = flat ? "#6c6658" : groundPat(c, "plaza"); plaza(); c.fill();
+  if (!flat){ c.strokeStyle = "#6a6760"; rs.forEach(R => { c.lineWidth = R.w*S + 6; path(R); c.stroke(); }); }
+  c.strokeStyle = flat ? "#8a8578" : "#27282b"; rs.forEach(R => { c.lineWidth = R.w*S; path(R); c.stroke(); });
+  c.restore();
+}
+function cityStatic(m, c, rect){
+  const inR = (x0,y0,x1,y1) => !rect || !(x1 < rect.x0 || x0 > rect.x1 || y1 < rect.y0 || y0 > rect.y1);
+  drawCityGround(m, c, T, rect, false);
+  if (rect){ for (let y = Math.max(0, Math.floor(rect.y0/T)); y < Math.min(m.h, Math.ceil(rect.y1/T)); y++) for (let x = Math.max(0, Math.floor(rect.x0/T)); x < Math.min(m.w, Math.ceil(rect.x1/T)); x++){
+    const i = y*m.w+x, v = h2(x,y,11); if (!m.full[i]) continue;
+    if (m.ft[i] === "road" && v > .93){ c.fillStyle = "rgba(0,0,0,.35)"; c.fillRect(x*T+v*10, y*T+h2(y,x,4)*14, 6, 3); }
+    else if (m.ft[i] === "walk" && v > .9){ c.fillStyle = "rgba(0,0,0,.2)"; c.fillRect(x*T+4, y*T+6, 10, 7); } } }
+  m.roads.forEach(R => { if (!R.major || !inR(R.bb[0]*T - 40, R.bb[1]*T - 40, R.bb[2]*T + 40, R.bb[3]*T + 40)) return;
+    c.save(); c.strokeStyle = "rgba(225,220,205,.35)"; c.lineWidth = 2; c.lineJoin = "round";
+    [-1, 1].forEach(sd => { const q = offsetLine(R.tp, (R.w/2 - 0.6)*sd); c.beginPath(); q.forEach(([x,y], i) => i ? c.lineTo(x*T, y*T) : c.moveTo(x*T, y*T)); c.stroke(); });
+    c.restore(); });
+  // lane markings
+  m.roads.forEach(R => {
+    if (!R.lanes) return; const p = R.tp;
+    for (let s=0;s<p.length-1;s++){
+      const [ax, ay] = p[s], [bx, by] = p[s+1], L = Math.hypot(bx-ax, by-ay), ux = (bx-ax)/L, uy = (by-ay)/L;
+      if (!inR(Math.min(ax,bx)*T - 40, Math.min(ay,by)*T - 40, Math.max(ax,bx)*T + 40, Math.max(ay,by)*T + 40)) continue;
+      c.strokeStyle = R.major ? "rgba(225,220,205,.55)" : "rgba(225,220,205,.4)"; c.lineWidth = R.major ? 3 : 2; c.setLineDash([40, 32]);
+      c.beginPath(); let started = false;
+      for (let t = 0; t <= L; t += 2){ const x = ax + ux*t, y = ay + uy*t; const nearX = Math.hypot(x - m.cross.x, y - m.cross.y) < 13; if (nearX){ if (started){ c.stroke(); c.beginPath(); started = false; } continue; } if (!started){ c.moveTo(x*T, y*T); started = true; } else c.lineTo(x*T, y*T); }
+      if (started) c.stroke(); c.setLineDash([]);
+    }
+  });
+  // the scramble crossing
+  const X0 = m.cross.x*T, Y0 = m.cross.y*T;
+  if (inR(X0 - 500, Y0 - 500, X0 + 500, Y0 + 500)){
+    c.save(); c.translate(X0, Y0); c.fillStyle = "rgba(232,228,216,.62)";
+    for (const ang of [0, Math.PI/2, Math.PI, -Math.PI/2]){ c.save(); c.rotate(ang); for (let d = -120; d <= 120; d += 30) c.fillRect(d, 150, 15, 90); c.restore(); }
+    for (const ang of [Math.PI/4, -Math.PI/4]){ c.save(); c.rotate(ang); for (let d = -230; d <= 230; d += 30) if (Math.abs(d) > 40) c.fillRect(d, -45, 15, 90); c.restore(); }
+    c.restore();
+  }
+  // "止まれ" stop markings where small streets meet big ones
+  m.statics.forEach(o => { if (inR(o.x0*T - 60, o.y0*T - 60, (o.x1+1)*T + 60, (o.y1+1)*T + 60)) drawFurn(c, o); });
+  // power lines between poles
+  c.strokeStyle = "rgba(20,20,20,.55)"; c.lineWidth = 1;
+  m.poles.forEach(([a, b]) => { const ax = (a.x0+0.5)*T, ay = (a.y0+0.5)*T, bx = (b.x0+0.5)*T, by = (b.y0+0.5)*T; if (!inR(Math.min(ax,bx), Math.min(ay,by), Math.max(ax,bx), Math.max(ay,by))) return; for (let k=-1;k<=1;k++){ c.beginPath(); c.moveTo(ax + k*3, ay - k*2); c.quadraticCurveTo((ax+bx)/2 + k*3, (ay+by)/2 + 8, bx + k*3, by - k*2); c.stroke(); } });
+  // fences across blocked roads
+  m.fences.forEach(f => {
+    if (!inR(Math.min(f.x0,f.x1)*T - 30, Math.min(f.y0,f.y1)*T - 30, Math.max(f.x0,f.x1)*T + 30, Math.max(f.y0,f.y1)*T + 30)) return;
+    const ax = f.x0*T, ay = f.y0*T, bx = f.x1*T, by = f.y1*T, L = Math.hypot(bx-ax, by-ay), ux = (bx-ax)/L, uy = (by-ay)/L;
+    c.strokeStyle = "#8a8b86"; c.lineWidth = 3; c.beginPath(); c.moveTo(ax, ay); c.lineTo(bx, by); c.stroke();
+    c.strokeStyle = "rgba(160,160,152,.5)"; c.lineWidth = 1; for (let t = 0; t < L; t += 6){ c.beginPath(); c.moveTo(ax + ux*t - uy*5, ay + uy*t + ux*5); c.lineTo(ax + ux*(t+6) + uy*5, ay + uy*(t+6) - ux*5); c.stroke(); }
+    for (let t = 0; t <= L; t += 48){ ell(c, ax + ux*t, ay + uy*t, 4, 4, "#5a5b56"); }
+    if (!f.long) for (let t = 20; t < L; t += 70){ const x = ax + ux*t - uy*12, y = ay + uy*t + ux*12; ell(c, x, y, 7, 7, "#d8501e"); ell(c, x, y, 3.5, 3.5, "#e8e4d8"); }
+    if (!f.long){ const mx = (ax+bx)/2, my = (ay+by)/2; c.save(); c.translate(mx, my); c.rotate(Math.atan2(uy, ux)); c.fillStyle = "#e8d23a"; c.fillRect(-34, -9, 68, 18); c.fillStyle = "#1a1a1a"; c.font = "700 12px system-ui, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillText("立入禁止", 0, 1); c.restore(); }
+  });
+}
+function drawCar2(c, o){
+  const L = o.kind === "van" ? 7*T : 6.2*T, W = 2.6*T;
+  c.save(); c.translate(o.cx, o.cy); c.rotate(o.ang);
+  ell(c, 4, 6, L/2+4, W/2+4, "rgba(0,0,0,.35)");
+  const body = o.kind === "taxi" ? "#2a2a2c" : o.color;
+  rr(c, -L/2, -W/2, L, W, 12, body);
+  c.fillStyle = "rgba(20,30,40,.85)"; c.beginPath(); c.moveTo(L*0.18, -W/2+5); c.lineTo(L*0.36, -W/2+8); c.lineTo(L*0.36, W/2-8); c.lineTo(L*0.18, W/2-5); c.fill();
+  c.beginPath(); c.moveTo(-L*0.3, -W/2+6); c.lineTo(-L*0.4, -W/2+8); c.lineTo(-L*0.4, W/2-8); c.lineTo(-L*0.3, W/2-6); c.fill();
+  rr(c, -L*0.3, -W/2+6, L*0.48, W-12, 6, shade(body.startsWith("#") ? body : "#888888", 0.08));
+  if (o.kind === "taxi") rr(c, -6, -5, 12, 10, 2, "#e8c838");
+  c.fillStyle = "#e8e2c8"; c.fillRect(L/2-4, -W/2+4, 3, 6); c.fillRect(L/2-4, W/2-10, 3, 6);
+  c.fillStyle = "#7a1a14"; c.fillRect(-L/2+1, -W/2+4, 3, 6); c.fillRect(-L/2+1, W/2-10, 3, 6);
+  if (o.door){ c.save(); c.translate(L*0.1, W/2); c.rotate(0.9); c.fillStyle = body; c.fillRect(0, -2, L*0.26, 4); c.restore(); }
+  c.restore();
+}
+function drawBFoot(c, o){
+  const b = o.b, K = BKIND[b.kind], x = b.x0*T, y = b.y0*T, w = (b.x1-b.x0+1)*T, h = (b.y1-b.y0+1)*T, cx = x + w/2, cy = y + h/2;
+  const r = rng(Math.floor(h2(b.x0, b.y0, 9) * 999999) + 1);
+  c.fillStyle = K.roof; c.fillRect(x, y, w, h);
+  c.strokeStyle = "rgba(0,0,0,.55)"; c.lineWidth = 3; c.strokeRect(x+1.5, y+1.5, w-3, h-3);
+  c.strokeStyle = "rgba(255,255,255,.1)"; c.lineWidth = 2; c.strokeRect(x+6, y+6, w-12, h-12);
+  if (b.kind === "abandoned"){ for (let i=0;i<14;i++){ c.save(); c.translate(x + r()*w, y + r()*h); c.rotate(r()*6); c.fillStyle = ["#2a2724","#4a4038","#1e1c1a"][r()*3|0]; c.fillRect(-10, -6, 12 + r()*20, 6 + r()*10); c.restore(); } c.fillStyle = "rgba(0,0,0,.45)"; c.beginPath(); c.arc(x + w*0.3, y + h*0.4, Math.min(w,h)*0.18, 0, 6.28); c.fill(); }
+  if (b.kind === "subway"){ c.fillStyle = "#2a2d30"; for (let i=0;i<4;i++) c.fillRect(x + 8, y + 10 + i*(h-20)/4, w - 16, 3); }
+  if (b.tower && b.kind !== "home"){ for (let i=0;i<2;i++){ rr(c, x + 14 + r()*(w-60), y + 14 + r()*(h-50), 26, 18, 2, "#7d7f7a"); } rr(c, x + w - 46, y + 12, 32, 32, 3, "#5d6064"); }
+  if (b.kind === "doctor"){ c.fillStyle = "#c83a2a"; c.fillRect(cx - 6, cy - 22, 12, 44); c.fillRect(cx - 22, cy - 6, 44, 12); }
+  if (K.jp){ c.save(); c.font = `800 ${Math.min(36, w/Math.max(3, K.jp.length)*1.1)}px system-ui, sans-serif`; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = "rgba(0,0,0,.35)"; c.fillText(K.jp, cx + 2, cy + 2); c.fillStyle = "rgba(240,236,224,.55)"; c.fillText(K.jp, cx, cy); c.restore(); }
+  // storefront on the door side
+  const d = b.door; if (!d) return;
+  const horiz = d.oy !== 0, fx = horiz ? x : (d.ox < 0 ? x - 6 : x + w), fy = horiz ? (d.oy < 0 ? y - 6 : y + h) : y, fw = horiz ? w : 6, fh = horiz ? 6 : h;
+  c.fillStyle = shade(K.accent, -0.2); c.fillRect(fx, fy, fw, fh);
+  c.fillStyle = K.accent; if (horiz) c.fillRect(fx, fy + (d.oy < 0 ? 0 : 3), fw, 3); else c.fillRect(fx + (d.ox < 0 ? 0 : 3), fy, 3, fh);
+  const dx = (d.x + 0.5)*T, dy = (d.y + 0.5)*T;
+  c.fillStyle = "rgba(140,170,190,.75)"; if (horiz) c.fillRect(dx - 22, fy + 1, 44, 4); else c.fillRect(fx + 1, dy - 22, 4, 44);
+  c.save(); c.translate(horiz ? cx : fx + (d.ox < 0 ? -10 : 16), horiz ? fy + (d.oy < 0 ? -10 : 16) : cy);
+  if (!horiz) c.rotate(d.ox < 0 ? -Math.PI/2 : Math.PI/2);
+  c.font = "700 13px 'Barlow Condensed', 'Arial Narrow', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+  const label = b.name.toUpperCase(), tw = c.measureText(label).width;
+  c.fillStyle = "rgba(10,10,9,.75)"; c.fillRect(-tw/2 - 6, -9, tw + 12, 18); c.fillStyle = K.accent; c.fillText(label, 0, 1); c.restore();
 }
 
 /* ---------------- chunked map rendering ---------------- */
@@ -1964,7 +2445,7 @@ function getChunk(m, cx, cy){
   const c = cv.getContext("2d"); c.scale(CPR, CPR); c.translate(-cx*size, -cy*size);
   c.fillStyle = "#050505"; c.fillRect(cx*size, cy*size, size, size);
   for (let y = cy*CH; y < Math.min(m.h, cy*CH+CH); y++) for (let x = cx*CH; x < Math.min(m.w, cx*CH+CH); x++) m.drawTile(c, x, y);
-  m.drawStatic(c);
+  m.drawStatic(c, { x0: cx*size, y0: cy*size, x1: (cx+1)*size, y1: (cy+1)*size });
   cv.used = frameNo; m.chunks.set(key, cv);
   if (m.chunks.size > 26){ let old = null; m.chunks.forEach((v,k) => { if (!old || v.used < m.chunks.get(old).used) old = k; }); m.chunks.delete(old); }
   return cv;
@@ -2159,7 +2640,7 @@ const ITEMS = {
   gunpowder:  { n:"Gunpowder", w:1, h:1, stack:20, desc:"Used to craft 9mm rounds." },
   fireworks:  { n:"Fireworks pack", w:1, h:1, stack:5, desc:"Summer fireworks. Salvage it for gunpowder at your workbench." },
   ammo9:      { n:"9mm rounds", w:1, h:1, stack:30, desc:"Handgun ammunition." },
-  handgun:    { n:"Handgun (9mm)", w:2, h:2, gun:{ mag:12 }, desc:"Holds 12 rounds. Loud: infected hear it from far away. Accuracy depends on your Aim stat." },
+  handgun:    { n:"Handgun (9mm)", w:2, h:2, gun:{ mag:12 }, desc:"Magazine size depends on how it was made (found guns hold 12). Loud: infected hear it from far away. Accuracy depends on your Aim stat." },
   bottle:     { n:"Glass bottle", w:1, h:1, thrown:{ noise:520, dmg:12, breaks:true }, desc:"Throw it to the crosshair (left-click while held). Shatters loudly and draws infected." },
   can:        { n:"Empty can", w:1, h:1, stack:3, thrown:{ noise:360, dmg:4 }, desc:"Throw it to the crosshair. Clatters and draws infected. You can pick it up again." },
   bp_small:   { n:"Small backpack", w:2, h:2, bp:3, col:"#5b4a30", scale:0.85, desc:"Wear it for +3 inventory slots." },
@@ -2225,6 +2706,7 @@ function addItem(id, n, extra){
   while (left > 0){ const p = findSpot(id); if (!p) return left; const k = Math.min(left, d.stack); GS.inv.items.push(Object.assign({ id, n:k, x:p.x, y:p.y }, extra || {})); left -= k; }
   return 0;
 }
+function extraOf(it){ const o = {}; ["mag","cap","broken","uses"].forEach(k => { if (it[k] !== undefined) o[k] = it[k]; }); return Object.keys(o).length ? o : null; }
 function countItem(id){ return GS.inv.items.reduce((a, it) => a + (it.id === id ? it.n : 0), 0); }
 function hasItem(id){ return countItem(id) > 0; }
 function removeItem(id, n){ n = n || 1; for (let i = GS.inv.items.length - 1; i >= 0 && n > 0; i--){ const it = GS.inv.items[i]; if (it.id !== id) continue; const k = Math.min(n, it.n); it.n -= k; n -= k; if (it.n <= 0) GS.inv.items.splice(i, 1); } if (GS.inv.sel && !GS.inv.items.includes(GS.inv.sel)) GS.inv.sel = null; return n === 0; }
@@ -2253,7 +2735,7 @@ function dailyWorldItems(){
   const d = day(); if (GS.itemDay === d) return; const first = GS.itemDay === undefined || GS.itemDay === null; GS.itemDay = d;
   const m = GS.maps.ST, r = rng(GS.seed * 11 + d * 977);
   scatterStreetItems(m, first ? 46 : 8, r);
-  if (r() < 0.12){ for (let k=0;k<200;k++){ const x = r()*m.w|0, y = r()*m.h|0; if (moveSolid(m, x, y) || ["road","walk","gai","alley"].indexOf(m.ft[y*m.w+x]) < 0) continue; m.picks.push({ id:"handgun", n:1, mag: rint(r, 2, 7), x:(x+0.5)*T, y:(y+0.5)*T }); break; } }
+  if (r() < 0.12){ for (let k=0;k<200;k++){ const x = r()*m.w|0, y = r()*m.h|0; if (moveSolid(m, x, y) || ["road","walk","gai","alley"].indexOf(m.ft[y*m.w+x]) < 0) continue; m.picks.push({ id:"handgun", n:1, mag: rint(r, 2, 7), cap:12, x:(x+0.5)*T, y:(y+0.5)*T }); break; } }
 }
 
 /* ---------- stores ---------- */
@@ -2324,6 +2806,7 @@ function drawShopThing(c, o, x, y, w, h, cx, cy, r){
       c.save(); c.font = "800 18px 'Big Shoulders Stencil Display', Impact, sans-serif"; c.textAlign = "center"; c.textBaseline = "middle"; c.fillStyle = kb ? "#1f6a44" : "#2a6a2a"; c.fillText(o.text, cx, y + h/2 + 2); c.restore();
       if (!kb){ c.fillStyle = "#3aa04a"; c.fillRect(x + 10, y + h/2 - 8, 6, 16); c.fillRect(x + 5, y + h/2 - 3, 16, 6); }
       break; }
+    default: drawOfficeThing(c, o, x, y, w, h, cx, cy, r);
   }
 }
 function shopMapOn(m){ return m.kind === "shop"; }
@@ -2351,7 +2834,7 @@ function renderInv(){
   GS.inv.items.forEach(it => {
     const d = ITEMS[it.id], el = document.createElement("button"); el.type = "button"; el.className = "itm" + (it === sel ? " sel" : "");
     el.style.left = it.x*CELL + "px"; el.style.top = it.y*CELL + "px"; el.style.width = d.w*CELL + "px"; el.style.height = d.h*CELL + "px";
-    el.innerHTML = `<img alt="" src="${itemIcon(it.id)}">` + (d.stack > 1 ? `<i>${it.n}</i>` : it.id === "handgun" ? `<i>${it.mag}/12</i>` : "");
+    el.innerHTML = `<img alt="" src="${itemIcon(it.id)}">` + (d.stack > 1 ? `<i>${it.n}</i>` : it.id === "handgun" ? `<i>${it.broken ? "jam" : it.mag + "/" + gunCap(it)}</i>` : it.id === "fabtool" ? `<i>${it.uses ?? 5}</i>` : "");
     el.title = d.n; el.setAttribute("aria-label", d.n + (d.stack > 1 ? ` × ${it.n}` : ""));
     el.addEventListener("pointerdown", ev => startDrag(ev, it, el));
     el.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " "){ ev.preventDefault(); GS.inv.sel = it; renderInv(); } });
@@ -2376,6 +2859,8 @@ function renderInv(){
   if (!sel){ det.innerHTML = `<p class="hint" style="margin:0">Select an item to see what it does. Drag items to rearrange them${GS.lootC ? ", or drag them onto the container to store them" : ""}.</p>`; return; }
   const d = ITEMS[sel.id], acts = [];
   if (d.food) acts.push([d.food.thirst < (d.food.hunger || 0) || d.food.hunger === undefined ? "Drink" : "Eat", () => consume(sel)]);
+  else if (d.drug) acts.push([sel.id === "caffeine" ? "Take" : "Smoke", () => useDrugItem(sel)]);
+  if (sel.id === "map_s" || sel.id === "map_l") acts.push(["Open map", () => { closePanels(); openMap(); }]);
   if (d.heal){ acts.push(["Use", () => useMed(sel, null)]); const al = nearAlly(); if (al) acts.push([`Use on ${al.npc.first}`, () => useMed(sel, al)]); }
   if (d.gun || d.thrown) acts.push([GS.equip.hand === sel.id ? "Put away" : "Hold", () => { GS.equip.hand = GS.equip.hand === sel.id ? "fists" : sel.id; renderInv(); }]);
   if (d.bp) acts.push(["Wear", () => wearBackpack(sel)]);
@@ -2384,7 +2869,7 @@ function renderInv(){
   if (GS.lootC) acts.push(["Store", () => putInCont(sel)]);
   acts.push(["Drop", () => dropItem(sel)]);
   const eff = d.food ? Object.entries(d.food).map(([k,v]) => `${k === "stamina" ? "Stamina" : k.charAt(0).toUpperCase()+k.slice(1)} ${v > 0 ? "+" : "−"}${Math.abs(v)}`).join(" · ") : "";
-  det.innerHTML = `<div class="dt"><img alt="" src="${itemIcon(sel.id)}"><div><b>${d.n}${d.stack > 1 ? ` × ${sel.n}` : ""}</b><p>${d.desc}</p>${eff ? `<p class="hint" style="margin:2px 0 0">${eff}</p>` : ""}${sel.id === "handgun" ? `<p class="hint" style="margin:2px 0 0">Loaded: ${sel.mag}/12 · Spare rounds: ${countItem("ammo9")}</p>` : ""}</div></div><div class="acts"></div>`;
+  det.innerHTML = `<div class="dt"><img alt="" src="${itemIcon(sel.id)}"><div><b>${d.n}${d.stack > 1 ? ` × ${sel.n}` : ""}</b><p>${d.desc}</p>${eff ? `<p class="hint" style="margin:2px 0 0">${eff}</p>` : ""}${sel.id === "handgun" ? `<p class="hint" style="margin:2px 0 0">Loaded: ${sel.mag}/${gunCap(sel)} · Spare rounds: ${countItem("ammo9")}${sel.broken ? " · JAMMED: fix it at your workbench" : ""}</p>` : ""}${sel.id === "fabtool" ? `<p class="hint" style="margin:2px 0 0">${sel.uses ?? 5} uses left</p>` : ""}</div></div><div class="acts"></div>`;
   const ab = det.querySelector(".acts");
   acts.forEach(([l, fn]) => { const b = document.createElement("button"); b.type = "button"; b.className = "btn sm"; b.textContent = l; b.onclick = () => { fn(); if (GS.panel === "g-inv") renderInv(); }; ab.appendChild(b); });
 }
@@ -2410,17 +2895,17 @@ function startDrag(ev, it, el){
 }
 function takeFromCont(i, quiet){
   const c = GS.lootC, it = c.items[i]; if (!it) return;
-  const extra = it.mag !== undefined ? { mag: it.mag } : null;
+  const extra = extraOf(it);
   const left = addItem(it.id, it.n, extra);
   if (left === it.n){ if (!quiet){ toast("No room in your inventory for that."); blip(110, 0.1, 0.05); } return; }
   blip(520, 0.04, 0.04);
   if (left) it.n = left; else c.items.splice(i, 1);
   if (!quiet) renderInv();
 }
-function putInCont(it){ const c = GS.lootC; if (!c) return; contAdd(c, it.id, it.n, it.mag !== undefined ? { mag: it.mag } : null); removeEntry(it); if (it.id === GS.equip.hand && !hasItem(it.id)) GS.equip.hand = "fists"; blip(380, 0.04, 0.04); }
+function putInCont(it){ const c = GS.lootC; if (!c) return; contAdd(c, it.id, it.n, extraOf(it)); removeEntry(it); if (it.id === GS.equip.hand && !hasItem(it.id)) GS.equip.hand = "fists"; blip(380, 0.04, 0.04); }
 function dropItem(it){
   if (it.id === "alarm"){ removeEntry(it); GS.items.push({ id:"alarm", map:GS.mapKey, x:GS.px, y:GS.py }); toast("You set the alarm clock down. It will still ring here."); return; }
-  curMap().picks.push({ id: it.id, n: it.n, x: GS.px + (Math.random()-0.5)*14, y: GS.py + (Math.random()-0.5)*14, mag: it.mag });
+  curMap().picks.push(Object.assign({ id: it.id, n: it.n, x: GS.px + (Math.random()-0.5)*14, y: GS.py + (Math.random()-0.5)*14 }, extraOf(it) || {}));
   removeEntry(it); if (!hasItem(GS.equip.hand) && GS.equip.hand !== "fists") GS.equip.hand = "fists"; blip(300, 0.05, 0.04);
 }
 function consume(it){
@@ -2431,7 +2916,12 @@ function consume(it){
   toast(`You ${f.thirst < 0 && !(f.hunger < -10) ? "drink" : "eat"} the ${ITEMS[it.id].n.toLowerCase()}.`); noiseBurst(0.2, 600, 0.12);
   if (it.id === "water" || it.id === "tea" || it.id === "sports"){ if (Math.random() < 0.6){ const m = curMap(); m.picks.push({ id:"bottle", n:1, x:GS.px + 6, y:GS.py + 6 }); } }
   if (it.id === "canned" && Math.random() < 0.8){ curMap().picks.push({ id:"can", n:1, x:GS.px + 6, y:GS.py - 4 }); }
+  if (ITEMS[it.id].drug) takeDrug(it.id);
   removeEntry(it, 1);
+}
+function useDrugItem(it){
+  const d = ITEMS[it.id], msg = { cigs:"You light a cigarette. Your hands stop shaking.", joint:"You smoke the joint. Everything slows down a little.", caffeine:"You swallow a couple of caffeine pills." }[it.id] || "You use it.";
+  takeDrug(it.id); toast(msg); noiseBurst(0.2, 1400, 0.08, "highpass"); removeEntry(it, 1);
 }
 function useMed(it, ally){
   const d = ITEMS[it.id];
@@ -2454,7 +2944,7 @@ function takeOffBackpack(){
 }
 
 /* ---------- hands, guns, throwing ---------- */
-function handLabel(){ const h = GS.equip.hand; if (h === "handgun"){ const g = gunItem(); return g ? `Handgun · ${g.mag}/12 · ${countItem("ammo9")} spare` : "Fists"; } if (h === "fists") return "Fists"; return `${ITEMS[h].n} × ${countItem(h)}`; }
+function handLabel(){ const h = GS.equip.hand; if (h === "handgun"){ const g = gunItem(); return g ? (g.broken ? "Handgun · jammed" : `Handgun · ${g.mag}/${gunCap(g)} · ${countItem("ammo9")} spare`) : "Fists"; } if (h === "fists") return "Fists"; return `${ITEMS[h].n} × ${countItem(h)}`; }
 function cycleHand(){
   const opts = ["fists"]; if (gunItem()) opts.push("handgun"); ["bottle","can"].forEach(id => { if (hasItem(id)) opts.push(id); });
   const i = opts.indexOf(GS.equip.hand); GS.equip.hand = opts[(i + 1) % opts.length]; GS.reload = null; blip(260, 0.04, 0.04);
@@ -2467,13 +2957,14 @@ function useHand(){
 }
 function shoot(){
   const g = gunItem(); if (!g || GS.punchCD > 0 || GS.reload || GS.dead || GS.transition) return;
+  if (g.broken){ toast("It's jammed. The parts don't fit right. Fix it at your workbench with a fabrication tool."); blip(900, 0.03, 0.06, "square"); GS.punchCD = 0.4; return; }
   if (g.mag <= 0){ blip(900, 0.03, 0.06, "square"); toast(countItem("ammo9") ? "Empty. Press R to reload." : "Empty, and no spare rounds."); GS.punchCD = 0.3; return; }
   g.mag--; GS.punchCD = 0.28; GS.combatT = Math.max(GS.combatT, 3);
-  const m = curMap(), aim = GS.save.stats.aim || 50;
+  const m = curMap(), aim = stat("aim");
   let spread = Math.max(1, 11 - aim*0.11);
   if (GS.moving) spread *= (keys.has("ShiftLeft") || keys.has("ShiftRight")) ? 2.4 : 1.6;
   if (GS.exhausted) spread *= 1.5;
-  spread += GS.recoil;
+  spread += GS.recoil + Math.max(0, (50 - stat("composure")) * 0.05);
   const ang = GS.aim + (Math.random()*2 - 1) * spread * Math.PI/180, dx = Math.sin(ang), dy = -Math.cos(ang);
   const ox = GS.px + dx*14, oy = GS.py + dy*14, wallD = castRay(m, ox, oy, dx, dy, 950);
   let best = null, bt = wallD;
@@ -2488,10 +2979,10 @@ function shoot(){
 }
 function startReload(){
   const g = gunItem(); if (GS.equip.hand !== "handgun" || !g || GS.reload) return;
-  if (g.mag >= 12) return; if (!hasItem("ammo9")){ toast("No spare 9mm rounds."); return; }
+  if (g.mag >= gunCap(g)) return; if (g.broken){ toast("It's jammed. Fix it at your workbench first."); return; } if (!hasItem("ammo9")){ toast("No spare 9mm rounds."); return; }
   GS.reload = { t:0, dur:1.6 }; noiseBurst(0.1, 1200, 0.2, "bandpass", 2);
 }
-function finishReload(){ const g = gunItem(); GS.reload = null; if (!g) return; const need = 12 - g.mag, have = countItem("ammo9"), k = Math.min(need, have); removeItem("ammo9", k); g.mag += k; noiseBurst(0.08, 1600, 0.25, "bandpass", 2); }
+function finishReload(){ const g = gunItem(); GS.reload = null; if (!g) return; const need = gunCap(g) - g.mag, have = countItem("ammo9"), k = Math.min(need, have); removeItem("ammo9", k); g.mag += k; noiseBurst(0.08, 1600, 0.25, "bandpass", 2); }
 function throwIt(id){
   if (GS.punchCD > 0 || GS.dead || GS.transition) return;
   const m = curMap(), zE = GS.zEff || zoom, dist0 = clamp(GS.aimDist / zE, 40, 430);
@@ -2512,6 +3003,7 @@ function landProj(p){
 
 /* ---------- needs & healing ---------- */
 function needsTick(gsec, sleeping){
+  if (GS.buffs) buffTick(gsec);
   const k = sleeping ? 0.5 : 1, h = gsec / 3600;
   GS.hunger = clamp(GS.hunger + 4.5*h*k, 0, 100); GS.thirst = clamp(GS.thirst + 6.5*h*k, 0, 100);
   if (GS.thirst >= 100) GS.hp -= 8*h; if (GS.hunger >= 100) GS.hp -= 5*h;
@@ -2525,6 +3017,8 @@ function updateStatusHud(){
   if (GS.hunger >= 80) chips.push(["Starving","bad"]); else if (GS.hunger >= 50) chips.push(["Hungry",""]);
   if (GS.heals.length) chips.push(["Healing","good"]);
   if (GS.pain > 0) chips.push(["Painkillers","good"]);
+  const seenB = new Set(); (GS.buffs || []).forEach(b => { if (!seenB.has(b.name)){ seenB.add(b.name); chips.push([b.name, ""]); } });
+  withdrawalMods().forEach(w => chips.push([WITHDRAW[w.s], "bad"]));
   $("h-status").innerHTML = chips.map(([t, c]) => `<span class="${c}">${t}</span>`).join("");
   const h = GS.equip.hand, el = $("h-hand");
   el.innerHTML = `<b>${escapeHtml(handLabel())}</b>${GS.reload ? "<small>Reloading…</small>" : h === "handgun" && gunItem() && gunItem().mag === 0 ? "<small>R to reload</small>" : "<small>Q to switch</small>"}`;
@@ -2541,29 +3035,47 @@ const RECIPES = [
 let craftQty = 12;
 function matsFor(rc, q){ return typeof rc.mats === "function" ? rc.mats(q) : rc.mats; }
 function maxQty(rc){ let q = 0; while (q < 120){ const m = matsFor(rc, q+1); if (Object.entries(m).some(([id, n]) => countItem(id) < n)) break; q++; } return q; }
+function brokenGun(){ return GS.inv.items.find(i => i.id === "handgun" && i.broken); }
 function renderCraft(){
   const box = $("craft-list"); box.innerHTML = "";
+  const tool = hasFabTool();
   RECIPES.forEach(rc => {
-    const q = rc.qty ? craftQty : 1, mats = matsFor(rc, q), ok = Object.entries(mats).every(([id, n]) => countItem(id) >= n), mins = typeof rc.mins === "function" ? rc.mins(q) : rc.mins;
+    const q = rc.qty ? craftQty : rc.gun ? gunCapSel : 1, mats = matsFor(rc, q), mins = typeof rc.mins === "function" ? rc.mins(q) : rc.mins;
+    let ok = Object.entries(mats).every(([id, n]) => countItem(id) >= n), note = "";
+    if (rc.fix){ ok = ok && !!brokenGun() && !!tool; note = !brokenGun() ? "You don't have a jammed handgun." : !tool ? "Needs a fabrication tool." : "Uses up 1 use of your fabrication tool."; }
+    if (rc.gun) note = tool ? `Uses 1 of your fabrication tool's ${tool.uses ?? 5} remaining uses.` : "No fabrication tool: it will come out jammed and need fixing later.";
     const row = document.createElement("div"); row.className = "craft";
-    row.innerHTML = `<img alt="" src="${itemIcon(rc.out)}"><div class="cinfo"><b>${rc.label || ITEMS[rc.out].n}${rc.qty ? ` × ${q}` : ""}</b><span>${rc.qty ? "Choose how many rounds to make." : ITEMS[rc.out].desc}</span>
-      <div class="mats">${Object.entries(mats).map(([id, n]) => `<em class="${countItem(id) >= n ? "ok" : "no"}">${ITEMS[id].n} ${countItem(id)}/${n}</em>`).join("")}<em>${mins} min</em></div>
-      ${rc.qty ? `<div class="qty"><input type="range" id="craft-q" min="1" max="60" value="${q}" aria-label="Rounds to make"><output>${q}</output><button class="btn sm" type="button" id="craft-max">Max (${maxQty(rc)})</button></div>` : ""}</div>`;
-    const b = document.createElement("button"); b.type = "button"; b.className = "btn sm primary"; b.textContent = "Craft"; b.disabled = !ok; b.onclick = () => craft(rc, q);
+    const title = rc.fix ? rc.label : rc.gun ? `Handgun · ${q}-round magazine` : (rc.label || ITEMS[rc.out].n) + (rc.qty ? ` × ${q}` : "");
+    const desc = rc.fix ? "Makes a jammed handgun fire properly." : rc.gun ? "Choose the magazine size. Bigger magazines need more parts." : rc.qty ? "Choose how many rounds to make." : ITEMS[rc.out].desc;
+    row.innerHTML = `<img alt="" src="${itemIcon(rc.out || "handgun")}"><div class="cinfo"><b>${title}</b><span>${desc}</span>
+      <div class="mats">${Object.entries(mats).map(([id, n]) => `<em class="${countItem(id) >= n ? "ok" : "no"}">${ITEMS[id].n} ${countItem(id)}/${n}</em>`).join("")}${rc.gun || rc.fix ? `<em class="${tool ? "ok" : "no"}">Fabrication tool ${tool ? "✓" : "✗"}</em>` : ""}<em>${mins} min</em></div>
+      ${note ? `<span class="hint" style="font-size:.74rem">${note}</span>` : ""}
+      ${rc.qty ? `<div class="qty"><input type="range" id="craft-q" min="1" max="60" value="${q}" aria-label="Rounds to make"><output>${q}</output><button class="btn sm" type="button" id="craft-max">Max (${maxQty(rc)})</button></div>` : ""}
+      ${rc.gun ? `<div class="qty"><input type="range" id="craft-cap" min="7" max="15" value="${q}" aria-label="Magazine size"><output>${q} rounds</output></div>` : ""}</div>`;
+    const b = document.createElement("button"); b.type = "button"; b.className = "btn sm primary"; b.textContent = rc.fix ? "Fix" : "Craft"; b.disabled = !ok; b.onclick = () => craft(rc, q);
     row.appendChild(b); box.appendChild(row);
     if (rc.qty){ const inp = row.querySelector("#craft-q"); paintRange(inp); inp.oninput = () => { craftQty = +inp.value; renderCraft(); setTimeout(() => { const n = $("craft-q"); if (n) n.focus(); }, 0); }; row.querySelector("#craft-max").onclick = () => { craftQty = Math.max(1, maxQty(rc)); renderCraft(); }; }
+    if (rc.gun){ const inp = row.querySelector("#craft-cap"); paintRange(inp); inp.oninput = () => { gunCapSel = +inp.value; renderCraft(); setTimeout(() => { const n = $("craft-cap"); if (n) n.focus(); }, 0); }; }
   });
   $("craft-note").textContent = `Inventory: ${GS.inv.items.reduce((a, it) => a + ITEMS[it.id].w*ITEMS[it.id].h, 0)} / ${invSlots()} slots used. Crafting passes time.`;
 }
 function craft(rc, q){
-  const mats = matsFor(rc, q), mins = typeof rc.mins === "function" ? rc.mins(q) : rc.mins, outN = rc.qty ? q : (rc.n || 1);
+  const mats = matsFor(rc, q), mins = typeof rc.mins === "function" ? rc.mins(q) : rc.mins;
   if (!Object.entries(mats).every(([id, n]) => countItem(id) >= n)) return;
-  Object.entries(mats).forEach(([id, n]) => removeItem(id, n));
-  const left = addItem(rc.out, outN);
-  if (left) curMap().picks.push({ id:rc.out, n:left, x:GS.px, y:GS.py });
+  let msg = "";
+  if (rc.fix){ const g = brokenGun(); if (!g || !hasFabTool()) return; Object.entries(mats).forEach(([id, n]) => removeItem(id, n)); useFabTool(); g.broken = false; msg = "You fix the handgun. It should fire properly now."; }
+  else {
+    Object.entries(mats).forEach(([id, n]) => removeItem(id, n));
+    let extra = null, outN = rc.qty ? q : (rc.n || 1);
+    if (rc.gun){ const works = useFabTool(); extra = { mag:0, cap:q, broken: !works }; msg = works ? `Crafted a handgun with a ${q}-round magazine. Load it with R.` : `Crafted a handgun, but without a fabrication tool the parts don't fit. It's jammed until you fix it.`; }
+    if (rc.out === "fabtool") extra = { uses:5 };
+    const left = addItem(rc.out, outN, extra);
+    if (left) curMap().picks.push(Object.assign({ id:rc.out, n:left, x:GS.px, y:GS.py }, extra || {}));
+    if (!msg) msg = `Crafted ${rc.label || ITEMS[rc.out].n}${rc.qty ? " × " + q : ""}.`;
+    if (left) msg += " Your inventory was full, so it's on the floor.";
+  }
   GS.t += mins*60; needsTick(mins*60, false);
-  toast(`Crafted ${rc.label || ITEMS[rc.out].n}${rc.qty ? " × " + q : ""} in ${mins} minutes.${left ? " Your inventory was full, so it's on the floor." : ""}`);
-  noiseBurst(0.3, 900, 0.2); renderCraft();
+  toast(`${msg} (${mins} min)`); noiseBurst(0.3, 900, 0.2); renderCraft();
 }
 
 /* ---------- resting ---------- */
@@ -2606,6 +3118,448 @@ function sleepTick(dt){
   if (GS.t >= s.end) wake();
 }
 
+/* =====================================================================
+   BUILDING INTERIORS — stores and multi-floor buildings, generated the
+   first time the player walks in (deterministic from the run seed)
+   ===================================================================== */
+const INF_BY = { grocery:[3,6], konbini:[0,2], fastfood:[0,5], drugstore:[0,2], pharmacy:[1,3], business:[2,5], abandoned:[0,1], doctor:[3,6], apartment:[1,3] };
+const HOME_B = { id:"H", floors:FLOORS, name:"Maison Udagawa", kind:"home" };
+function bNum(b){ return b.id === "H" ? 0 : (+String(b.id).slice(1) + 1); }
+function bSeed(b, f){ return Math.floor(h2(GS.seed % 1000003, bNum(b)*31 + (f||0), 57) * 2147483000) + 1; }
+function cityB(id){ return id === "H" ? HOME_B : (GS.maps.ST.blds.find(b => b.id === id) || null); }
+function bldOf(n){ return n.bld || "H"; }
+function npcKey(n){ return bldOf(n) === "H" ? "F" + n.floor : n.bld + "F" + n.floor; }
+function bName(id){ const b = cityB(id); return b ? b.name : "Maison Udagawa"; }
+function floorKey(bid, f){ return bid === "H" ? "F" + f : bid + "F" + f; }
+function getMap(key){
+  if (GS.maps[key]) return GS.maps[key];
+  let m = null, mt;
+  if ((mt = key.match(/^F(\d+)$/))){ const rooms = {}; GS.npcs.forEach(n => { if (bldOf(n) === "H") rooms[n.room] = true; }); m = makeFloor(+mt[1], GS.seed, GS.home, rooms, HOME_B); }
+  else if ((mt = key.match(/^(B\d+)F(\d+)$/))){
+    const b = cityB(mt[1]), f = +mt[2];
+    if (b.kind === "apartment"){ const rooms = {}; GS.npcs.forEach(n => { if (n.bld === b.id && n.floor === f && n.alive) rooms[n.room] = true; }); m = makeFloor(f, bSeed(b, 0), { floor:-1 }, rooms, b); }
+    else m = makeOffice(b, f);
+  }
+  else if ((mt = key.match(/^(B\d+)$/))) m = makeStore(cityB(mt[1]));
+  if (!m) return null;
+  GS.maps[key] = m;
+  if (GS.pend) applyPending(m);
+  return m;
+}
+function applyPending(m){
+  const P = GS.pend, k = m.key;
+  if (P.conts && P.conts[k]){ let i = 0; m.furn.forEach(o => { if (o.cont){ if (P.conts[k][i]) o.cont.items = P.conts[k][i]; i++; } }); }
+  if (P.picks && P.picks[k]) m.picks = P.picks[k];
+  if (P.doors && P.doors[k]) P.doors[k].forEach((st, i) => { const d = m.doors[i]; if (d){ d.open = !!st[0]; d.locked = !!st[1]; d.tried = !!st[2]; } });
+  if (P.visited && P.visited.includes(k)) m.visited = true;
+  if (P.infs && P.infs[k]) P.infs[k].forEach(e => { const z = spawnInf(m, e.x, e.y, { look: e.look }); z.hp = e.hp; z.maxHp = e.maxHp || z.maxHp; z.spd = e.spd || z.spd; z.state = "idle"; });
+}
+function spawnInterior(m){
+  if (m.visited) return; m.visited = true;
+  const rngI = m.infN; if (!rngI) return;
+  const n = rngI[0] + Math.floor(Math.random() * (rngI[1] - rngI[0] + 1)); if (!n) return;
+  const sp = m.spawn || { x: GS.px, y: GS.py }, cand = [];
+  for (let y=1;y<m.h-1;y++) for (let x=1;x<m.w-1;x++) if (!moveSolid(m, x, y) && Math.hypot((x+0.5)*T - sp.x, (y+0.5)*T - sp.y) > 9*T && !(m.ft[y*m.w+x] || "").startsWith("stair") && (!m.infZone || m.ft[y*m.w+x] === m.infZone)) cand.push([x,y]);
+  for (let i=0;i<n && cand.length;i++){ const p = cand.splice(Math.random()*cand.length|0, 1)[0]; const z = spawnInf(m, (p[0]+0.5)*T, (p[1]+0.5)*T); z.state = "idle"; }
+}
+function gridTools(w, h, r){
+  const I = (x,y) => y*w + x, tiles = new Uint8Array(w*h), ft = new Array(w*h).fill(""), block = new Uint8Array(w*h), furn = [], deco = [], inter = [], doors = [], rooms = [];
+  const T0 = { I, tiles, ft, block, furn, deco, inter, doors, rooms };
+  T0.carve = (x0,y0,x1,y1,k) => { for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){ tiles[I(x,y)] = FLOOR; ft[I(x,y)] = k; } };
+  T0.wall = (x0,y0,x1,y1) => { for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){ tiles[I(x,y)] = WALL; ft[I(x,y)] = ""; } };
+  T0.win = (x0,y0,x1,y1) => { for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++) tiles[I(x,y)] = WIN; };
+  T0.F = (k, x0,y0,x1,y1, cont, extra) => { const o = Object.assign({ k, x0, y0, x1, y1, solid:true, seed:r() }, extra || {}); if (cont) o.cont = cont; furn.push(o); for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++) if (o.solid) block[I(x,y)] = 1; return o; };
+  T0.freeRect = (x0,y0,x1,y1) => { for (let y=y0;y<=y1;y++) for (let x=x0;x<=x1;x++){ if (x < 0 || y < 0 || x >= w || y >= h || tiles[I(x,y)] !== FLOOR || block[I(x,y)] || T0.keep && T0.keep(x,y)) return false; } return true; };
+  T0.place = (room, k, ww, hh, cont, extra, tries) => { for (let t=0;t<(tries||60);t++){ const x = room.x0 + (r()*(room.x1 - room.x0 - ww + 2)|0), y = room.y0 + (r()*(room.y1 - room.y0 - hh + 2)|0); if (T0.freeRect(x-0, y-0, x+ww-1, y+hh-1)) return T0.F(k, x, y, x+ww-1, y+hh-1, cont, extra); } return null; };
+  return T0;
+}
+const lootList = (r, list) => list.map(([id, a, b, p]) => [id, (p === undefined || r() < p) ? rint(r, a, b) : 0]);
+function leftItem(r){ return [["bottle",1,1],["can",1,2],["cloth",1,1],["bandage_s",1,1],["paper",1,2],["scrap",1,1],["cigs",1,3],["ammo9",3,5],["water",1,1]][Math.min(8, r()*9|0)]; }
+
+/* ---------------- single-floor stores ---------------- */
+function makeStore(b){
+  const kind = b.kind, D = { konbini:[30,22], pharmacy:[28,22], grocery:[44,32], fastfood:[30,22], drugstore:[26,20] }[kind] || [30,22];
+  const w = D[0], h = D[1], r = rng(bSeed(b, 0)), G = gridTools(w, h, r), { F, carve, wall, I } = G;
+  const dc = Math.floor(w/2), door = [dc-1, dc];
+  carve(1, 1, w-2, h-2, kind === "pharmacy" ? "vinyl2" : kind === "fastfood" ? "dining" : kind === "grocery" ? "vinyl" : "vinyl");
+  for (let x=1; x<=w-2; x++) if (x < door[0] || x > door[1]) G.tiles[I(x, h-1)] = WIN;
+  G.deco.push({ k:"winlight", x0:1, y0:h-5, x1:w-2, y1:h-2, dir:1 });
+  G.inter.push({ k:"leave", x0:door[0]*T, y0:(h-2)*T, x1:(door[1]+1)*T, y1:h*T });
+  G.keep = (x,y) => Math.abs(x - dc) < 3 && y > h - 6;
+  const C = (name, list) => mkCont(name, lootList(r, list));
+  if (kind === "konbini"){
+    [[2,5],[6,9],[10,13],[14,17]].forEach(([a,c2], i) => F("dfridge", a, 1, c2, 1, C("drink fridge", [["water",3,5],["tea",1,2],["sports",0,2],["cola",0,2],["energy",0,2,0.6]])));
+    F("cooler", 1, 5, 1, 12, C("food cooler", [["onigiri",3,7],["bento",1,3],["bread",1,3]]), { o:"v" });
+    [6, 11, 16].forEach((x, i) => {
+      const lists = [ [["chips",2,4],["chocolate",1,3],["canned",1,2]], [["cupnoodle",2,4],["canned",1,3],["bread",0,2]],
+        [["tape",1,2],["cloth",1,3],["bandage_s",1,2],["paper",1,2]], [["water",2,3],["tea",1,2],["cola",0,2]],
+        [["fireworks",1,3],["bottle",1,2],["can",1,2]], [["chocolate",1,2],["cupnoodle",1,2],["chips",1,2]] ];
+      const names = ["snack shelf","food shelf","household goods","drinks shelf","seasonal shelf","snack shelf"];
+      F("shelf", x, 6, x+1, 9, C(names[i*2], lists[i*2])); F("shelf", x, 10, x+1, 13, C(names[i*2+1], lists[i*2+1]));
+    });
+    F("magrack", 2, 15, 4, 15, C("magazine rack", [["paper",2,4]]));
+    F("counter2", 20, 16, 27, 17, C("register counter", [["chocolate",1,2],["cigs",2,5],["energy",0,1],["bandage_s",0,1]]));
+    wall(21, 1, 21, 11); carve(21, 6, 21, 7, "backroom"); wall(21, 12, 28, 12); carve(22, 1, 28, 11, "backroom");
+    F("scrappile", 25, 8, 28, 11, C("scrap pile", [["scrap",6,12],["tape",0,1]]));
+    F("stockbox", 22, 1, 24, 2, C("stock boxes", [["water",3,5],["canned",1,3]]));
+    F("stockbox", 26, 1, 28, 2, C("stock boxes", [["cloth",1,2],["bottle",1,2],["wood",1,2]]));
+  } else if (kind === "pharmacy"){
+    F("counter2", 5, 4, 22, 4, C("pharmacy counter", [["painkillers",2,3],["rubbing",1,2]]));
+    F("phshelf", 5, 1, 10, 1, C("dispensary shelf", [["painkillers",2,4],["rubbing",1,2]]));
+    F("phshelf", 11, 1, 16, 1, C("dispensary shelf", [["bandage_s",3,5],["antiseptic",0,1]]));
+    F("phshelf", 17, 1, 22, 1, C("dispensary shelf", [["bandage_l",1,2],["firstaid",0,1,0.4]]));
+    F("phshelf", 5, 8, 12, 9, C("first aid aisle", [["bandage_s",3,6],["rubbing",1,2]]));
+    F("phshelf", 15, 8, 22, 9, C("first aid aisle", [["bandage_s",2,4],["antiseptic",0,1,0.6]]));
+    F("phshelf", 5, 12, 12, 13, C("medicine aisle", [["painkillers",2,4],["caffeine",0,2]]));
+    F("phshelf", 15, 12, 22, 13, C("personal care aisle", [["cloth",1,3],["rubbing",0,2],["chocolate",1,1,0.04]]));
+    F("dfridge", 26, 7, 26, 12, C("drink fridge", [["water",0,1,0.5],["sports",0,1,0.3]]), { o:"v" });
+  } else if (kind === "grocery"){
+    for (let x=2; x<=w-12; x+=4) F("dfridge", x, 1, x+3, 1, C("refrigerator", [["water",2,4],["tea",1,3],["cola",1,2],["sports",0,2]]));
+    F("cooler", 1, 4, 1, 22, C("deli cooler", [["onigiri",4,8],["bento",2,4],["bread",2,4]]), { o:"v" });
+    for (let x=5; x<=w-14; x+=5){ const names = ["canned goods","instant food","snacks","drinks","household goods","bakery"];
+      const lists = [ [["canned",3,6],["cupnoodle",1,3]], [["cupnoodle",3,6],["canned",1,2]], [["chips",3,5],["chocolate",2,4]], [["water",3,5],["tea",1,3],["cola",1,2]], [["cloth",1,3],["tape",0,2],["paper",1,2],["bottle",1,2]], [["bread",3,5],["chocolate",0,2]] ];
+      const k = ((x-5)/5)|0; F("shelf", x, 5, x+1, 11, C(names[k % 6], lists[k % 6])); F("shelf", x, 13, x+1, 19, C(names[(k+3) % 6], lists[(k+3) % 6])); }
+    for (let x=6; x<=w-16; x+=7) F("produce", x, 22, x+3, 23, C("produce stand", [["apple",2,5]]));
+    for (let x=6; x<=w-14; x+=6) F("checkout", x, 26, x+2, 26, C("checkout", [["chocolate",0,2],["cigs",0,2,0.4]]));
+    wall(w-11, 1, w-11, 22); carve(w-11, 10, w-11, 12, "backroom"); carve(w-10, 1, w-2, 22, "backroom");
+    F("stockbox", w-9, 1, w-6, 3, C("stock pallet", [["water",4,8],["canned",3,6]]));
+    F("stockbox", w-5, 1, w-2, 3, C("stock pallet", [["cupnoodle",3,6],["bread",1,3]]));
+    F("pallet", w-9, 17, w-7, 19, C("wooden pallets", [["wood",2,4]]));
+    F("freezer", w-5, 14, w-2, 19, C("walk-in freezer", [["bento",1,3],["canned",1,2]]), { o:"v" });
+  } else if (kind === "fastfood"){
+    wall(1, 9, w-2, 9); carve(3, 9, 5, 9, "kitchen"); for (let y=1;y<=8;y++) for (let x=1;x<=w-2;x++){ G.ft[I(x,y)] = "kitchen"; }
+    F("counter2", 6, 10, w-7, 10, C("front counter", [["burger",1,3],["fries",1,3],["cola",1,2]]));
+    F("fryer", 8, 1, 11, 2); F("grill", 13, 1, 17, 2); F("kfridge", 20, 1, 23, 2, C("kitchen fridge", [["burger",1,3],["cola",1,3],["water",0,2]]));
+    F("stockbox", w-5, 1, w-2, 3, C("supply crates", [["wood",1,2],["fries",0,2],["cola",0,2]]));
+    F("stockbox", 1, 5, 3, 7, C("dry storage", [["cupnoodle",0,2],["bread",0,2]]));
+    for (let x=3; x<=w-6; x+=6) for (let y=12; y<=h-7; y+=5){ if (Math.abs(x+1 - dc) < 3 && y > h - 9) continue; const li = r() < 0.35 ? leftItem(r) : null;
+      F("ftable", x, y, x+2, y+1, mkCont("table", lootList(r, [["fries",0,1,0.4],["cola",0,1,0.4]].concat(li ? [li] : [])))); }
+  } else if (kind === "drugstore"){
+    F("cigcounter", w-9, 13, w-3, 14, C("tobacco counter", [["cigs",4,8],["joint",1,3,0.7]]));
+    F("phshelf", 3, 2, 10, 2, C("health shelf", [["painkillers",1,2],["bandage_s",1,2],["caffeine",1,3]]));
+    F("phshelf", 12, 2, 19, 2, C("energy & supplements", [["caffeine",1,3],["energy",1,3]]));
+    F("shelf", 4, 6, 5, 11, C("snack shelf", [["chips",1,3],["chocolate",1,3]])); F("shelf", 9, 6, 10, 11, C("toiletries", [["cloth",1,2],["rubbing",0,1]]));
+    F("shelf", 14, 6, 15, 11, C("household", [["tape",0,1],["paper",1,2],["bottle",0,1]]));
+    F("dfridge", w-2, 3, w-2, 10, C("drink fridge", [["energy",2,4],["water",1,2]]), { o:"v" });
+    F("stockbox", w-8, 1, w-4, 2, C("back stock", [["cigs",2,5],["joint",0,2,0.5],["caffeine",0,2]]));
+  }
+  const S = { name:b.name, kind:BKIND[kind].label, door, street:b.out };
+  const m = { kind:"shop", key:b.id, bld:b.id, bref:b, f:0, w, h, tiles:G.tiles, ft:G.ft, block:G.block, furn:G.furn, statics:G.furn, doors:[], inter:G.inter, rooms:[], deco:G.deco, doorGrid:new Int16Array(w*h).fill(-1), apts:{},
+    chunks:new Map(), decals:[], corpses:[], ents:[], picks:[], indoor:true, visited:false, shop:S, infN: INF_BY[kind], spawn:{ x:(dc)*T, y:(h-2.6)*T, a:0 } };
+  m.drawTile = (c,x,y) => floorTile(m,c,x,y);
+  m.drawStatic = c => { m.furn.forEach(o => drawFurn(c, o)); c.save(); c.font = "800 34px 'Big Shoulders Stencil Display', Impact, sans-serif"; c.textAlign = "center"; c.fillStyle = "rgba(40,40,36,.18)"; c.fillText(b.name.toUpperCase(), w*T/2, (h-6)*T); c.restore(); };
+  return m;
+}
+
+/* ---------------- multi-floor offices, abandoned buildings, clinics ---------------- */
+const ROOM_ROLES = {
+  business: ["office","office","office","meeting","storage","server","breakroom","restroom","office","storage"],
+  abandoned: ["empty","squat","collapsed","junk","empty","squat","junk","collapsed"],
+  doctor: ["exam","exam","supply","lab","office","waiting","exam","restroom","supply"],
+};
+const ROOM_LABEL = { office:"Office", meeting:"Meeting room", storage:"Storage", server:"Server room", breakroom:"Break room", restroom:"Restroom", empty:"Empty room", squat:"Someone's camp", collapsed:"Collapsed room", junk:"Junk room", exam:"Exam room", supply:"Supply room", lab:"Lab", waiting:"Waiting room", lobby:"Lobby", reception:"Reception" };
+function makeOffice(b, f){
+  const kind = b.kind, w = 60, h = 44, r = rng(bSeed(b, f)), G = gridTools(w, h, r), { F, carve, wall, I } = G;
+  const pick = a => a[r()*a.length|0];
+  const fk = kind === "business" ? "carpet" : kind === "doctor" ? "clinic" : "dirty";
+  carve(1,14,11,29,"landing"); carve(2,15,10,18,"stairUp"); carve(2,25,10,28,"stairDown"); carve(12,20,12,23,"hall");
+  G.inter.push({ k:"stairs", dir:1, x0:2*T, y0:15*T, x1:11*T, y1:19*T }); G.inter.push({ k:"stairs", dir:-1, x0:2*T, y0:25*T, x1:11*T, y1:29*T });
+  G.win(0,17,0,26);
+  carve(13,19,w-3,24, kind === "abandoned" ? "dirty" : "hall");
+  const bands = [];
+  if (kind === "doctor"){
+    carve(13, 8, w-3, 9, "hall");
+    const pass = [13 + 6 + (r()*6|0), w - 12 - (r()*6|0)]; pass.forEach(x => carve(x, 10, x+1, 18, "hall"));
+    bands.push({ y0:1, y1:6, doorY:7, side:"N", min:6, max:9 }); bands.push({ y0:11, y1:17, doorY:18, side:"N", min:6, max:9, cuts: pass });
+  } else bands.push({ y0:1, y1:17, doorY:18, side:"N", min:8, max:14 });
+  bands.push({ y0:26, y1:h-2, doorY:25, side:"S", min: kind === "doctor" ? 7 : 8, max: kind === "doctor" ? 10 : 14 });
+  bands.forEach(B => {
+    let x = 13;
+    while (x < w - 4){
+      let rw = B.min + (r()*(B.max - B.min + 1)|0); if (w - 2 - (x + rw) < B.min) rw = w - 2 - x;
+      let x0 = x, x1 = Math.min(w - 2, x + rw - 1);
+      if (B.cuts) for (const cx of B.cuts){ if (cx >= x0 && cx <= x1 + 1){ x1 = cx - 1; } }
+      if (x1 - x0 >= 3){
+        carve(x0, B.y0, x1, B.y1, fk);
+        const room = { x0, y0:B.y0, x1, y1:B.y1, side:B.side, number:null };
+        const dcx = Math.max(x0 + 1, Math.min(x1 - 2, Math.floor((x0 + x1)/2) - 1));
+        const dy = B.doorY; carve(dcx, dy, dcx + 2, dy, fk);
+        const missing = kind === "abandoned" && r() < 0.5;
+        if (!missing){ const d = { kind:"room", orient:"h", open: kind === "business" ? r() < 0.5 : r() < 0.7, locked:false, number:null, home:false, tried:false, swing:{ x:0, y: B.side === "N" ? -1 : 1 }, hingeLow: r() < 0.5, x0:dcx, y0:dy, x1:dcx+2, y1:dy }; G.doors.push(d); }
+        room.door = { x: dcx + 1, y: dy };
+        G.rooms.push(room);
+      }
+      x = (B.cuts && B.cuts.find(cx => cx >= x0 && cx <= x0 + rw)) ? B.cuts.find(cx => cx >= x0 && cx <= x0 + rw) + 2 : x1 + 2;
+    }
+  });
+  // 1F lobby with the way out
+  let lobby = null;
+  if (f === 1){
+    const lower = G.rooms.filter(rm => rm.side === "S");
+    lobby = lower.sort((a,c2) => Math.abs((a.x0+a.x1)/2 - w/2) - Math.abs((c2.x0+c2.x1)/2 - w/2))[0];
+    lobby.role = kind === "doctor" ? "reception" : "lobby";
+    const ex = Math.floor((lobby.x0 + lobby.x1)/2);
+    for (let x = lobby.x0; x <= lobby.x1; x++) if (Math.abs(x - ex) > 1) G.tiles[I(x, h-1)] = WIN;
+    G.deco.push({ k:"winlight", x0:lobby.x0, y0:h-5, x1:lobby.x1, y1:h-2, dir:1 });
+    G.inter.push({ k:"exit", x0:(ex-1)*T, y0:(h-3)*T, x1:(ex+2)*T, y1:h*T });
+    lobby.exit = { x:(ex+0.5)*T, y:(h-2.4)*T };
+  }
+  // furnish
+  const roles = ROOM_ROLES[kind];
+  G.rooms.forEach((rm, i) => {
+    if (!rm.role) rm.role = roles[(i + (r()*roles.length|0)) % roles.length];
+    rm.label = ROOM_LABEL[rm.role] || "Room";
+    G.keep = (x,y) => Math.abs(x - rm.door.x) <= 1 && Math.abs(y - rm.door.y) <= 3 || (rm.exit && Math.abs(x - rm.exit.x/T) < 3 && y > h - 6);
+    const P = (k, ww, hh, list, name, extra) => G.place(rm, k, ww, hh, list ? mkCont(name || k, lootList(r, list)) : null, extra);
+    switch (rm.role){
+      case "office": { const n = 2 + (r()*4|0); for (let k=0;k<n;k++) P("desk2", 2, 1, [["paper",1,2,0.6],["springs",1,1,0.1],["tape",1,1,0.08],["painkillers",1,1,0.05],["chocolate",1,1,0.1]], "desk drawers");
+        for (let k=0;k<1+(r()*2|0);k++) P("filing", 1, 1, [["paper",2,5],["springs",1,1,0.15]], "filing cabinet"); if (r() < 0.5) P("copier", 2, 1, [["paper",3,6]], "copier"); P("plant", 1, 1); break; }
+      case "meeting": P("mtable", Math.min(5, rm.x1 - rm.x0 - 1), 2, [["paper",1,3,0.6]], "meeting table"); P("plant", 1, 1); break;
+      case "storage": for (let k=0;k<3;k++) P("shelf2", 2, 1, [["scrap",1,4],["wood",0,3],["tape",0,2,0.5],["springs",0,2,0.4],["cloth",0,2,0.5],["paper",0,3,0.5]], "storage shelf"); P("pallet", 2, 2, [["wood",2,4]], "wooden pallets"); break;
+      case "server": for (let k=0;k<3;k++) P("rack", 1, 3, [["scrap",1,3],["springs",0,1,0.5]], "server rack"); break;
+      case "breakroom": P("kfridge", 2, 1, [["water",0,2],["cola",0,2],["tea",0,2],["cupnoodle",0,2,0.5]], "fridge"); P("vend", 2, 1, null, null, { face:1, color:"#d0d0ca" }); P("ftable", 3, 2, [["cupnoodle",0,1,0.3]], "table"); break;
+      case "restroom": P("toilet", 2, 2); P("basin", 2, 1); break;
+      case "empty": for (let k=0;k<2;k++) P("rubble", 1, 1, null, null, { solid:false }); break;
+      case "squat": P("mattress", 2, 3, null, null, { rest:true, solid:false }); P("trash", 1, 1, null, null, { solid:false }); P("duffel", 1, 1, [["water",0,1,0.5],["cloth",0,1,0.5],["bandage_s",0,1,0.3],["canned",0,1,0.3]], "duffel bag", { solid:false }); break;
+      case "collapsed": for (let k=0;k<4;k++) P("rubble2", 2, 2, null); P("junk", 2, 1, [["wood",1,3],["scrap",0,1]], "broken furniture"); break;
+      case "junk": for (let k=0;k<2;k++) P("junk", 2, 1, [["wood",2,4],["scrap",0,1,0.3]], "broken furniture"); P("rubble", 1, 1, null, null, { solid:false }); break;
+      case "exam": P("exambed", 2, 1); P("medcab", 1, 1, [["bandage_s",0,2],["antiseptic",0,1,0.5],["painkillers",0,1,0.5],["bandage_l",0,1,0.4]], "medicine cabinet"); P("basin", 2, 1); break;
+      case "supply": for (let k=0;k<3;k++) P("shelf2", 2, 1, [["firstaid",0,1,0.45],["medkit",0,1,0.2],["bandage_l",1,2],["antiseptic",0,2],["rubbing",0,2]], "supply shelf"); break;
+      case "lab": P("labbench", Math.min(4, rm.x1 - rm.x0 - 1), 1, [["rubbing",0,2],["antiseptic",0,1,0.4],["paper",0,2]], "lab bench"); P("kfridge", 2, 1, [["medkit",0,1,0.25],["water",0,1]], "sample fridge"); break;
+      case "waiting": for (let k=0;k<2;k++) P("chairs", 3, 1); P("magrack", 2, 1, [["paper",1,3]], "magazine rack"); P("plant", 1, 1); break;
+      case "lobby": P("recdesk", 3, 1, [["paper",1,2],["painkillers",0,1,0.2]], "reception desk"); P("plant", 1, 1); P("chairs", 3, 1); break;
+      case "reception": P("recdesk", 3, 1, [["paper",1,3],["painkillers",0,2],["bandage_s",0,1]], "reception desk"); P("chairs", 3, 1); P("chairs", 3, 1); break;
+    }
+  });
+  G.keep = null;
+  if (kind === "abandoned"){ for (let k=0;k<26;k++){ const x = 13 + (r()*(w-16)|0), y = 1 + (r()*(h-2)|0); if (G.tiles[I(x,y)] === FLOOR && !G.block[I(x,y)]) G.F(pick(["rubble","trash","papers2"]), x, y, x, y, null, { solid:false }); }
+    for (let k=0;k<8;k++){ const x = 13 + (r()*(w-16)|0), y = r() < 0.5 ? 18 : 25; G.deco.push({ k:"graffiti", x0:x, y0:y, x1:x+2, y1:y, seed:r(), up: y === 18 }); } }
+  const block = G.block, doorGrid = new Int16Array(w*h).fill(-1);
+  G.doors.forEach((d, di) => { for (let y=d.y0;y<=d.y1;y++) for (let x=d.x0;x<=d.x1;x++) doorGrid[I(x,y)] = di; });
+  const order = { rug:0, rubble:1, papers2:1, trash:2, mattress:1, duffel:2 };
+  const m = { kind:"floor", office:true, key: b.id + "F" + f, f, floors: b.floors, bld: b.id, bref: b, w, h, tiles:G.tiles, ft:G.ft, block, furn:G.furn, statics: G.furn.slice().sort((a,c2) => (order[a.k]??5) - (order[c2.k]??5)),
+    doors:G.doors, inter:G.inter, rooms:G.rooms, deco:G.deco, doorGrid, apts:{}, chunks:new Map(), decals:[], corpses:[], ents:[], picks:[], indoor:true, visited:false,
+    infN: kind === "abandoned" ? (r() < 0.1 ? [1,1] : null) : INF_BY[kind], spawn: f === 1 && lobby ? lobby.exit : { x:6.5*T, y:21.8*T } };
+  m.drawTile = (c,x,y) => floorTile(m,c,x,y); m.drawStatic = c => floorStatic(m,c);
+  return m;
+}
+function drawOfficeThing(c, o, x, y, w, h, cx, cy, r){
+  switch (o.k){
+    case "desk2": rr(c, x+2, y+3, w-4, h-6, 2, "#5a5650"); rr(c, cx-8, y+5, 16, 8, 1, "#1e2226"); c.fillStyle = "#2c3e50"; c.fillRect(cx-6, y+6, 12, 6); ell(c, cx, y+h+3, 5, 5, "#2c2c2c"); break;
+    case "filing": rr(c, x+3, y+2, w-6, h-4, 1, "#7a7d80"); c.fillStyle = "#5a5d60"; for (let i=0;i<3;i++) c.fillRect(x+5, y+5+i*6, w-10, 1.5); break;
+    case "copier": rr(c, x+2, y+2, w-4, h-4, 3, "#d8d8d2"); c.fillStyle = "#3a3a3a"; c.fillRect(x+6, y+5, w-12, 5); break;
+    case "mtable": rr(c, x+2, y+3, w-4, h-6, 6, "#4a3a2c"); for (let i=0;i<Math.floor(w/22);i++){ ell(c, x+14+i*22, y, 5, 4, "#2c2c2c"); ell(c, x+14+i*22, y+h, 5, 4, "#2c2c2c"); } break;
+    case "shelf2": rr(c, x+1, y+3, w-2, h-6, 1, "#6a6c6e"); for (let i=0;i<4;i++){ c.fillStyle = ["#8a6a40","#7a7d80","#5a4a3a","#9a9a8a"][(i + (o.seed*10|0)) % 4]; c.fillRect(x+4+i*10, y+5, 7, h-10); } break;
+    case "pallet": rr(c, x+2, y+2, w-4, h-4, 1, "#9a7a4a"); c.fillStyle = "rgba(0,0,0,.25)"; for (let i=x+6;i<x+w-4;i+=8) c.fillRect(i, y+3, 2, h-6); break;
+    case "rack": rr(c, x+2, y+1, w-4, h-2, 1, "#1e2226"); for (let i=0;i<Math.floor(h/6);i++){ c.fillStyle = i%3 ? "#3aa04a" : "#d8402a"; c.fillRect(x+5, y+4+i*6, 2, 2); } break;
+    case "mattress": rr(c, x+2, y+2, w-4, h-4, 4, "#9a9080"); rr(c, x+5, y+5, w-10, 10, 3, "#c8c0b0"); c.fillStyle = "rgba(90,70,50,.35)"; c.fillRect(x+6, y+h*0.5, w-12, h*0.3); break;
+    case "duffel": ell(c, cx, cy, 9, 6, "#2a3a2a"); c.strokeStyle = "#1a1a1a"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx-6, cy); c.lineTo(cx+6, cy); c.stroke(); break;
+    case "rubble": for (let i=0;i<4;i++) ell(c, x+4+r()*(w-8), y+4+r()*(h-8), 3+r()*4, 2+r()*3, ["#5a554c","#4a4640","#6a655c"][r()*3|0], r()*3); break;
+    case "rubble2": for (let i=0;i<9;i++){ c.save(); c.translate(x+6+r()*(w-12), y+6+r()*(h-12)); c.rotate(r()*6); c.fillStyle = ["#5a554c","#4a4640","#6a655c","#3a3632"][r()*4|0]; c.fillRect(-8, -5, 10+r()*10, 6+r()*8); c.restore(); } break;
+    case "junk": for (let i=0;i<4;i++){ c.save(); c.translate(x+6+r()*(w-12), y+6+r()*(h-12)); c.rotate(r()*6); c.fillStyle = ["#6b5236","#5a4630","#7a5a36"][r()*3|0]; c.fillRect(-10, -3, 20, 5); c.restore(); } break;
+    case "papers2": for (let i=0;i<4;i++){ c.save(); c.translate(x+r()*w, y+r()*h); c.rotate(r()*6.28); c.fillStyle = "rgba(220,215,200,.45)"; c.fillRect(-4,-3,8,6); c.restore(); } break;
+    case "exambed": rr(c, x+2, y+4, w-4, h-8, 3, "#b8c4c6"); rr(c, x+4, y+6, 12, h-12, 3, "#e8e8e2"); break;
+    case "medcab": rr(c, x+3, y+2, w-6, h-4, 2, "#e8e8e2"); c.fillStyle = "#c83a2a"; c.fillRect(cx-1.5, cy-5, 3, 10); c.fillRect(cx-5, cy-1.5, 10, 3); break;
+    case "labbench": rr(c, x+1, y+3, w-2, h-6, 2, "#2a2c2e"); for (let i=0;i<Math.floor(w/14);i++){ ell(c, x+10+i*14, cy, 3, 3, "rgba(150,200,220,.8)"); } break;
+    case "chairs": for (let i=0;i<Math.floor(w/T);i++) rr(c, x+4+i*T, y+5, T-8, h-10, 3, "#3a5a7a"); break;
+    case "recdesk": rr(c, x+1, y+4, w-2, h-8, 4, "#d8d2c4"); rr(c, cx-8, y+5, 16, 7, 1, "#1e2226"); break;
+    case "magrack": rr(c, x+2, y+3, w-4, h-6, 1, "#5a4a3a"); for (let i=0;i<Math.floor(w/9);i++){ c.fillStyle = ["#c8402a","#2a6aa8","#e8c838","#e8e2d6"][i%4]; c.fillRect(x+4+i*9, y+5, 6, h-10); } break;
+    case "fryer": rr(c, x+1, y+2, w-2, h-4, 2, "#8a8b86"); for (let i=0;i<2;i++) rr(c, x+6+i*(w/2), y+6, w/2-10, h-12, 2, "#c8a040"); break;
+    case "grill": rr(c, x+1, y+2, w-2, h-4, 2, "#3a3a38"); c.strokeStyle = "#6a6a64"; c.lineWidth = 1; for (let i=x+6;i<x+w-4;i+=5){ c.beginPath(); c.moveTo(i, y+5); c.lineTo(i, y+h-5); c.stroke(); } break;
+    case "kfridge": rr(c, x+2, y+2, w-4, h-4, 3, "#c4c4be"); c.fillStyle = "#9a9a94"; c.fillRect(cx-0.5, y+4, 1, h-8); break;
+    case "ftable": rr(c, x+4, y+4, w-8, h-8, 4, "#8a6a4a"); ell(c, x+4, cy, 5, 5, "#c8402a"); ell(c, x+w-4, cy, 5, 5, "#c8402a"); break;
+    case "produce": rr(c, x+1, y+3, w-2, h-6, 3, "#6b5236"); for (let i=0;i<10;i++) ell(c, x+6+r()*(w-12), y+6+r()*(h-12), 3.5, 3.5, ["#c8302a","#e8a83a","#5a9a3a"][r()*3|0]); break;
+    case "checkout": rr(c, x+1, y+4, w-2, h-8, 2, "#5a5a56"); rr(c, x+w-16, y+5, 12, 7, 1, "#1e2226"); break;
+    case "cigcounter": rr(c, x+1, y+3, w-2, h-6, 2, "#4a3a2c"); for (let i=0;i<Math.floor(w/7);i++){ c.fillStyle = ["#e8e2d6","#c8402a","#2a6aa8","#e8c838"][i%4]; c.fillRect(x+4+i*7, y+5, 5, 6); } break;
+    case "freezer": rr(c, x+1, y+1, w-2, h-2, 2, "#a8b4ba"); c.fillStyle = "rgba(200,230,245,.4)"; c.fillRect(x+4, y+4, w-8, h-8); break;
+    case "graffiti": { c.save(); c.globalAlpha = 0.55; c.strokeStyle = ["#d8402a","#3ad4ff","#e8d23a","#9b6bff"][(o.seed*4)|0]; c.lineWidth = 3; c.beginPath(); for (let i=0;i<8;i++) c.lineTo(x + i*w/8, y + (o.up ? h - 6 : 6) + Math.sin(i*1.7 + o.seed*9)*5); c.stroke(); c.restore(); break; }
+  }
+}
+function makeExtraNPCs(seed, blds, save, startIdx){
+  const out = []; let i = startIdx;
+  const r = rng(Math.floor(h2(seed % 1000003, 313, 9) * 2147483000) + 1), pick = a => a[r()*a.length|0], used = new Set();
+  blds.filter(b => b.kind === "apartment").forEach(b => {
+    const n = 1 + (r()*3|0);
+    for (let k=0;k<n;k++){
+      const f = 1 + (r()*b.floors|0), nums = aptNumbersOn(f), room = pick(nums);
+      if (used.has(b.id + room)) continue; used.add(b.id + room);
+      const gender = r() < 0.5 ? "Male" : "Female", first = pick(gender === "Male" ? NPC_M : NPC_F), last = pick(NPC_L);
+      const band = r(), age = band < 0.3 ? 19 + (r()*8|0) : band < 0.75 ? 27 + (r()*20|0) : 47 + (r()*30|0);
+      const sleepS = 22 + (r()*4|0), sleepE = 6 + (r()*3|0);
+      const p = { id:"n"+i, bld:b.id, first, last, name:`${first} ${last}`, gender, age, job: pick(age < 27 ? JOBS.young : age < 60 ? JOBS.mid : JOBS.old), traits: pickTraits(r, 2), social: r()*100|0, look: randomLook(r, gender),
+        floor:f, room, met:false, known:false, hinted:false, allied:false, mode:"home", alive:true, hp:100, sleepS: sleepS % 24, sleepE,
+        lastTalkDay:-1, helpDay:-1, aiDay:-1, aiGain:0, endedT:-1e9, wokeT:-1e9, seen:false, invited:false, lore:null, need:null, loreIdx: i % LORE.length, alarmAnnoy:0 };
+      addPersona(p, rng(Math.floor(h2(seed % 1000003, i + 101, 41) * 2147483000) + 1));
+      if (b.infested) p.situation = "is trapped in their apartment because infected are wandering the hallways";
+      p.rel = initialRel(p, save) - 4;
+      out.push(p); i++;
+    }
+  });
+  return out;
+}
+
+/* =====================================================================
+   BUILD 0.6 ITEMS: materials, tools, maps, new food, drug store goods
+   ===================================================================== */
+Object.assign(ITEMS, {
+  cola:       { n:"Cola", w:1, h:1, food:{ thirst:-24, hunger:-3 }, desc:"Sugary and fizzy." },
+  energy:     { n:"Energy drink", w:1, h:1, food:{ thirst:-18 }, drug:"energy", desc:"Thirst −18 and faster stamina recovery for an hour. Caffeine: habit-forming." },
+  cupnoodle:  { n:"Cup noodles", w:1, h:1, food:{ hunger:-25, thirst:4 }, desc:"Eaten dry. Salty." },
+  apple:      { n:"Apple", w:1, h:1, food:{ hunger:-12, thirst:-4 }, desc:"Crisp. Slightly bruised." },
+  burger:     { n:"Burger", w:1, h:1, food:{ hunger:-35, thirst:3 }, desc:"Cold, but filling." },
+  fries:      { n:"Fries", w:1, h:1, food:{ hunger:-15, thirst:6 }, desc:"Soggy and salty." },
+  rubbing:    { n:"Rubbing alcohol", w:1, h:2, heal:{ amt:15, dur:5 }, desc:"Cleans wounds: heals 15 over 5 seconds. Works on allies too." },
+  medkit:     { n:"Medical kit", w:2, h:2, heal:{ amt:100, dur:15 }, desc:"Clinic-grade supplies. Heals 100 over 15 seconds. Works on allies too." },
+  cigs:       { n:"Cigarette", w:1, h:1, stack:20, drug:"nicotine", desc:"Composure +12, Stamina −4 for an hour. Very habit-forming; heavy use slowly damages Stamina and Fitness." },
+  joint:      { n:"Joint", w:1, h:1, stack:5, drug:"cannabis", desc:"Composure +20, Aim −8 and makes you hungry, for two hours. Habit-forming; heavy use slowly dulls Intelligence and Untrusted sense." },
+  caffeine:   { n:"Caffeine pills", w:1, h:1, stack:10, drug:"caffeine", desc:"Stamina recovers 30% faster for two hours, Composure −6. Habit-forming." },
+  paper:      { n:"Paper", w:1, h:1, stack:20, desc:"Crafting material for maps and the fabrication tool." },
+  wood:       { n:"Wood scrap", w:1, h:1, stack:10, desc:"Crafting material." },
+  springs:    { n:"Springs", w:1, h:1, stack:10, desc:"Crafting part for weapons." },
+  fabtool:    { n:"Fabrication tool", w:2, h:1, desc:"Needed to make intricate devices like handguns work. Wears out after 5 uses." },
+  map_s:      { n:"Small map", w:1, h:1, desc:"A hand-drawn map of Shibuya. Press M to open it and place up to 3 waypoints." },
+  map_l:      { n:"Large map", w:2, h:1, desc:"A detailed map of Shibuya. Press M to open it and place up to 7 waypoints." },
+});
+Object.values(ITEMS).forEach(d => { d.stack = d.stack || 1; });
+const _itemIcon0 = itemIcon;
+itemIcon = function(id){
+  if (iconCache[id]) return iconCache[id];
+  const d = ITEMS[id], S = 40, cv = document.createElement("canvas"); cv.width = d.w*S*2; cv.height = d.h*S*2;
+  const c = cv.getContext("2d"); c.scale(2, 2); const W = d.w*S, H = d.h*S, cx = W/2, cy = H/2, R = (x,y,w,h,r,col) => rr(c, x, y, w, h, r, col);
+  let done = true;
+  switch (id){
+    case "cola": R(cx-6, cy-15, 12, 30, 4, "rgba(60,30,20,.9)"); c.fillStyle = "#d8302a"; c.fillRect(cx-6, cy-3, 12, 7); R(cx-3, cy-18, 6, 4, 1, "#d8302a"); break;
+    case "energy": R(cx-7, cy-14, 14, 28, 3, "#1a1a1a"); c.fillStyle = "#5bff8b"; c.beginPath(); c.moveTo(cx+2, cy-10); c.lineTo(cx-4, cy+1); c.lineTo(cx, cy+1); c.lineTo(cx-2, cy+10); c.lineTo(cx+4, cy-2); c.lineTo(cx, cy-2); c.fill(); break;
+    case "cupnoodle": c.fillStyle = "#e8e2d6"; c.beginPath(); c.moveTo(cx-12, cy-12); c.lineTo(cx+12, cy-12); c.lineTo(cx+9, cy+13); c.lineTo(cx-9, cy+13); c.fill(); c.fillStyle = "#c8302a"; c.fillRect(cx-11, cy-4, 22, 7); break;
+    case "apple": ell(c, cx, cy+2, 11, 11, "#c8302a"); c.fillStyle = "#4a3020"; c.fillRect(cx-1, cy-13, 2, 6); ell(c, cx+5, cy-10, 4, 2, "#5a9a3a", -0.5); break;
+    case "burger": ell(c, cx, cy-5, 14, 7, "#d9a85a"); c.fillStyle = "#5a9a3a"; c.fillRect(cx-14, cy-1, 28, 3); c.fillStyle = "#5a3020"; c.fillRect(cx-14, cy+2, 28, 5); ell(c, cx, cy+9, 14, 4, "#c8904a"); break;
+    case "fries": c.fillStyle = "#e8c838"; for (let i=0;i<6;i++) c.fillRect(cx-10+i*4, cy-14+(i%2)*3, 3, 14); R(cx-11, cy-2, 22, 15, 2, "#c8302a"); break;
+    case "rubbing": R(cx-8, 10, 16, H-18, 4, "#e8f0f4"); c.fillStyle = "#3a7ab8"; c.fillRect(cx-8, cy-6, 16, 12); R(cx-4, 5, 8, 7, 1, "#e8e8e8"); break;
+    case "medkit": R(6, 10, W-12, H-16, 6, "#e8e8e2"); R(cx-14, 5, 28, 7, 2, "#8a8a84"); c.fillStyle = "#3a7ab8"; c.fillRect(cx-5, cy-13, 10, 30); c.fillRect(cx-15, cy-3, 30, 10); break;
+    case "cigs": R(cx-10, cy-13, 20, 26, 2, "#e8e2d6"); c.fillStyle = "#c8302a"; c.fillRect(cx-10, cy-13, 20, 8); c.fillStyle = "#e8c070"; c.fillRect(cx-6, cy-17, 3, 6); c.fillRect(cx-1, cy-16, 3, 5); break;
+    case "joint": c.save(); c.translate(cx, cy); c.rotate(-0.5); R(-14, -3, 28, 6, 3, "#e8e2d6"); c.fillStyle = "#c8a070"; c.fillRect(-14, -3, 6, 6); c.restore(); break;
+    case "caffeine": R(cx-9, cy-12, 18, 24, 4, "#f0d040"); c.fillStyle = "#2a2a2a"; c.fillRect(cx-9, cy-3, 18, 7); break;
+    case "paper": for (let i=2;i>=0;i--) R(cx-11+i*2, cy-13+i*2, 20, 24, 1, i ? "#c8c4b8" : "#f0ece2"); c.fillStyle = "rgba(0,0,0,.2)"; for (let i=0;i<4;i++) c.fillRect(cx-7, cy-7+i*5, 12, 1); break;
+    case "wood": c.save(); c.translate(cx, cy); c.rotate(0.35); R(-14, -5, 28, 10, 1, "#9a7a4a"); c.fillStyle = "rgba(0,0,0,.2)"; c.fillRect(-12, -1, 24, 1); c.restore(); break;
+    case "springs": c.strokeStyle = "#9aa3a6"; c.lineWidth = 2.5; c.beginPath(); for (let i=0;i<=40;i++){ const t = i/40; c.lineTo(cx - 12 + t*24, cy + Math.sin(t*Math.PI*10)*7); } c.stroke(); break;
+    case "fabtool": R(8, cy-5, W-30, 10, 3, "#d8a028"); R(W-26, cy-9, 20, 18, 3, "#3a3c3e"); c.fillStyle = "#9aa3a6"; c.fillRect(W-8, cy-2, 6, 4); break;
+    case "map_s": R(cx-12, cy-12, 24, 24, 1, "#e8dcb8"); c.strokeStyle = "#8a6a40"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(cx-10, cy+6); c.lineTo(cx-2, cy-2); c.lineTo(cx+10, cy+2); c.stroke(); c.fillStyle = "#c8302a"; c.fillRect(cx+3, cy-8, 3, 3); break;
+    case "map_l": R(6, cy-14, W-12, 28, 1, "#e8dcb8"); c.strokeStyle = "#8a6a40"; c.lineWidth = 1.5; c.beginPath(); c.moveTo(10, cy+8); c.lineTo(30, cy-4); c.lineTo(52, cy+4); c.lineTo(72, cy-8); c.stroke(); c.fillStyle = "#c8302a"; c.fillRect(48, cy-10, 3, 3); c.fillRect(24, cy+4, 3, 3); break;
+    default: done = false;
+  }
+  if (!done) return _itemIcon0(id);
+  iconCache[id] = cv.toDataURL(); return iconCache[id];
+};
+const LOOT_EXTRA = [["paper",8],["wood",7],["cola",3],["cupnoodle",3],["cigs",3],["energy",2],["apple",2]];
+STREET_LOOT.push(...LOOT_EXTRA);
+
+/* ---------------- stats, buffs and dependence ---------------- */
+const DRUGS = {
+  nicotine: { name:"Nicotine", hrs:1, mods:{ composure:12, stamina:-4 }, dep:10, harm:{ stamina:-0.25, fitness:-0.15 } },
+  cannabis: { name:"High", hrs:2, mods:{ composure:20, aim:-8 }, dep:12, hunger:12, harm:{ intelligence:-0.3, sense:-0.2 } },
+  caffeine: { name:"Caffeine", hrs:2, mods:{ composure:-6, staminaRec:30 }, dep:8, harm:{} },
+  energy:   { name:"Caffeine", hrs:1, mods:{ staminaRec:20 }, dep:5, sub:"caffeine", harm:{} },
+};
+const WITHDRAW = { nicotine:"Nicotine withdrawal", cannabis:"Cannabis withdrawal", caffeine:"Caffeine withdrawal" };
+function stat(k){
+  let v = (GS.save.stats[k] ?? 50) + ((GS.statPerm || {})[k] || 0);
+  (GS.buffs || []).forEach(b => { if (b.mods[k]) v += b.mods[k]; });
+  withdrawalMods().forEach(m => { if (m[k]) v += m[k]; });
+  return clamp(v, 1, 99);
+}
+function staminaRecMult(){ let p = 0; (GS.buffs || []).forEach(b => p += b.mods.staminaRec || 0); withdrawalMods().forEach(m => p += m.staminaRec || 0); return 1 + p/100; }
+function withdrawalMods(){
+  const out = []; if (!GS.dep) return out;
+  Object.keys(WITHDRAW).forEach(s => { if ((GS.dep[s] || 0) >= 40 && GS.t - (GS.lastUse[s] || -1e9) > 8*3600) out.push({ s, composure:-12, aim:-6, staminaRec:-15 }); });
+  return out;
+}
+function takeDrug(id){
+  const D = DRUGS[ITEMS[id].drug], sub = D.sub || ITEMS[id].drug;
+  GS.buffs = GS.buffs.filter(b => b.src !== id);
+  GS.buffs.push({ src:id, name:D.name, mods:D.mods, until: GS.t + D.hrs*3600 });
+  if (D.hunger) GS.hunger = clamp(GS.hunger + D.hunger, 0, 100);
+  const before = GS.dep[sub] || 0;
+  GS.dep[sub] = Math.min(100, before + D.dep); GS.lastUse[sub] = GS.t;
+  if (before >= 60) Object.entries(D.harm).forEach(([k, v]) => GS.statPerm[k] = (GS.statPerm[k] || 0) + v);
+}
+function buffTick(gsec){
+  GS.buffs = GS.buffs.filter(b => GS.t < b.until);
+  Object.keys(GS.dep).forEach(s => GS.dep[s] = Math.max(0, GS.dep[s] - 1.2 * gsec/3600));
+}
+
+/* ---------------- crafting additions ---------------- */
+let gunCapSel = 12;
+RECIPES.push(
+  { id:"springs", out:"springs", n:2, label:"Springs × 2", mats:{ scrap:3 }, mins:15 },
+  { id:"fabtool", out:"fabtool", mats:{ scrap:4, paper:2, wood:3 }, mins:40 },
+  { id:"map_s", out:"map_s", mats:{ paper:3 }, mins:20 },
+  { id:"map_l", out:"map_l", mats:{ paper:8 }, mins:45 },
+  { id:"handgun", out:"handgun", gun:true, mats: q => ({ scrap: 12 + (q - 7), springs: 2 + Math.floor((q - 7)/3) }), mins:120 },
+  { id:"fixgun", out:null, fix:true, label:"Fix a jammed handgun", mats:{ scrap:2 }, mins:30 },
+);
+function hasFabTool(){ return GS.inv.items.find(i => i.id === "fabtool"); }
+function useFabTool(){ const t = hasFabTool(); if (!t) return false; t.uses = (t.uses ?? 5) - 1; if (t.uses <= 0){ removeEntry(t); toast("Your fabrication tool wore out."); } return true; }
+function gunCap(g){ return g ? (g.cap || 12) : 12; }
+
+/* ---------------- map & waypoints ---------------- */
+function mapCap(){ return hasItem("map_l") ? 7 : hasItem("map_s") ? 3 : 0; }
+let mapCanvas = null, mapView = null;
+function buildMapCanvas(){
+  const m = GS.maps.ST, s = 2, cv = document.createElement("canvas"); cv.width = m.w*s; cv.height = m.h*s;
+  const c = cv.getContext("2d");
+  c.fillStyle = "#2a2924"; c.fillRect(0, 0, cv.width, cv.height);
+  drawCityGround(m, c, s, null, true);
+  m.fences.forEach(f => { c.strokeStyle = "#d8402a"; c.lineWidth = 2; c.beginPath(); c.moveTo(f.x0*s, f.y0*s); c.lineTo(f.x1*s, f.y1*s); c.stroke(); });
+  m.blds.forEach(b => { const K = BKIND[b.kind]; c.fillStyle = b.kind === "home" ? "#ff7a2e" : K.accent; c.globalAlpha = 0.85; c.fillRect(b.x0*s, b.y0*s, (b.x1-b.x0+1)*s, (b.y1-b.y0+1)*s); c.globalAlpha = 1; c.strokeStyle = "#0b0c0a"; c.lineWidth = 1; c.strokeRect(b.x0*s+0.5, b.y0*s+0.5, (b.x1-b.x0+1)*s-1, (b.y1-b.y0+1)*s-1); });
+  mapCanvas = cv;
+}
+const MAP_GLYPH = { grocery:"🛒", konbini:"24", fastfood:"F", drugstore:"D", pharmacy:"+", apartment:"A", business:"B", abandoned:"x", doctor:"✚", home:"★", subway:"駅" };
+function openMap(){
+  if (!mapCap()){ toast("You don't have a map. Craft one from paper at your workbench."); return; }
+  if (!mapCanvas) buildMapCanvas();
+  openPanel("g-map"); renderMap();
+}
+function playerStreetPos(){
+  const m = curMap();
+  if (m.kind === "street") return { x: GS.px, y: GS.py, a: GS.a };
+  const b = m.bref || (m.bld === "H" || (m.kind === "floor" && !m.bref) ? GS.maps.ST.homeB : null);
+  return b ? { x: b.out.x, y: b.out.y, a: null, inside: b.name } : { x: GS.maps.ST.homeB.out.x, y: GS.maps.ST.homeB.out.y, a:null, inside:"Maison Udagawa" };
+}
+function renderMap(){
+  const cv = $("map-cv"), wrap = $("map-wrap"), m = GS.maps.ST;
+  const W = wrap.clientWidth || 700, sc = W / (m.w * T), H = m.h * T * sc;
+  cv.width = Math.round(W * 2); cv.height = Math.round(H * 2); cv.style.height = H + "px";
+  const c = cv.getContext("2d"); c.setTransform(2,0,0,2,0,0); c.imageSmoothingEnabled = true;
+  c.drawImage(mapCanvas, 0, 0, W, H);
+  mapView = { sc, W, H };
+  c.font = "600 11px 'Barlow Condensed', sans-serif"; c.textAlign = "center"; c.textBaseline = "middle";
+  m.blds.forEach(b => { const x = (b.x0+b.x1+1)/2*T*sc, y = (b.y0+b.y1+1)/2*T*sc; c.fillStyle = "rgba(10,10,9,.75)"; c.beginPath(); c.arc(x, y, 8, 0, 6.283); c.fill(); c.fillStyle = "#f6ead2"; c.fillText(MAP_GLYPH[b.kind] || "?", x, y + 0.5); });
+  GS.wps.forEach((w, i) => { const x = w.x*sc, y = w.y*sc; c.fillStyle = "#3bd4ff"; c.beginPath(); c.moveTo(x, y); c.lineTo(x - 7, y - 14); c.lineTo(x + 7, y - 14); c.fill(); c.fillStyle = "#0b0c0a"; c.font = "700 10px 'IBM Plex Mono', monospace"; c.fillText(String(i+1), x, y - 12); });
+  const p = playerStreetPos(), px = p.x*sc, py = p.y*sc;
+  c.save(); c.translate(px, py); if (p.a !== null) c.rotate(p.a); c.fillStyle = "#ff7a2e"; c.beginPath(); c.moveTo(0, -9); c.lineTo(6, 6); c.lineTo(0, 3); c.lineTo(-6, 6); c.fill(); c.restore();
+  const cap = mapCap();
+  $("map-info").textContent = `${p.inside ? "You're inside " + p.inside + ". " : ""}Click the map to place a waypoint (${GS.wps.length}/${cap}). Click a waypoint to remove it.`;
+  const list = $("map-list"); list.innerHTML = "";
+  GS.wps.forEach((w, i) => { const row = document.createElement("div"); row.className = "wprow"; const d = Math.round(Math.hypot(w.x - p.x, w.y - p.y) * U2M);
+    row.innerHTML = `<b>${i+1}</b><span>${escapeHtml(w.label)} · ${d} m</span>`; const btn = document.createElement("button"); btn.className = "btn sm"; btn.type = "button"; btn.textContent = "Remove"; btn.onclick = () => { GS.wps.splice(i, 1); renderMap(); }; row.appendChild(btn); list.appendChild(row); });
+  const leg = $("map-legend"); if (!leg.innerHTML) leg.innerHTML = Object.entries(MAP_GLYPH).map(([k, g]) => `<span><i>${g}</i>${k === "home" ? "Home" : BKIND[k].label}</span>`).join("");
+}
+function mapClick(ev){
+  const cv = $("map-cv"), rc = cv.getBoundingClientRect(), m = GS.maps.ST, sc = mapView.sc;
+  const wx = (ev.clientX - rc.left) / sc, wy = (ev.clientY - rc.top) / sc;
+  const hit = GS.wps.findIndex(w => Math.hypot(w.x - wx, w.y - wy) < 14/sc);
+  if (hit >= 0){ GS.wps.splice(hit, 1); renderMap(); return; }
+  if (GS.wps.length >= mapCap()){ $("map-info").textContent = `Your map holds ${mapCap()} waypoints. Remove one first${mapCap() < 7 ? ", or craft a large map for up to 7" : ""}.`; blip(110, 0.1, 0.05); return; }
+  const tx = Math.floor(wx/T), ty = Math.floor(wy/T); if (tx < 0 || ty < 0 || tx >= m.w || ty >= m.h) return;
+  const b = m.blds.find(b => tx >= b.x0 - 2 && tx <= b.x1 + 2 && ty >= b.y0 - 2 && ty <= b.y1 + 2);
+  GS.wps.push({ x: b ? b.out.x : wx, y: b ? b.out.y : wy, label: b ? b.name : m.area(tx, ty) });
+  blip(620, 0.05, 0.05); renderMap();
+}
+function drawUserWaypoints(c, cx, cy, z){
+  if (GS.mapKey !== "ST" || !GS.wps.length) return;
+  GS.wps.forEach((w, i) => drawWaypointAt(c, cx, cy, z, { x:w.x, y:w.y, label:`${i+1} · ${w.label}` }, "#3bd4ff", true));
+}
+
 /* ---------------- game state ---------------- */
 const gc = $("gc"), g = gc.getContext("2d");
 const dark = document.createElement("canvas"), dctx = dark.getContext("2d");
@@ -2628,6 +3582,7 @@ function startGame(save, savedOk, run){
   else { const homes = allApartmentNumbers(); const hp = homes[rng(seed*13)()*homes.length|0]; home = { floor: hp.floor, number: hp.number }; save.home = { floor: home.floor, number: home.number }; store.set(SAVE_KEY, save); }
   const t0 = run ? run.t0 : 7*3600 + Math.floor(rng(seed*3)()*3600);
   GS = { save, seed, home, maps:{}, mapKey:"F"+home.floor, px:0, py:0, a:0, phase:0, moving:false, t:t0, t0,
+    wps:[], buffs:[], dep:{}, lastUse:{}, statPerm:{}, pend:null,
     inv:{ items:[], sel:null }, equip:{ bp:null, hand:"fists" }, hunger:25, thirst:30, heals:[], pain:0, recoil:0, tracers:[], proj:[], reload:null, flash:0, lootC:null, sleep:null, itemDay:null, zoomMul:1, zEff:2, restHome:true,
     phoneDead:true, watch:null, items:[], smearT:null, reading:null, holdView:false, viewT:0, tWas:false, devCombat:false,
     transition:null, prompt:null, toastT:0, introT:0, panel:null, hintsHidden:false, dead:false, deadT:0,
@@ -2644,18 +3599,27 @@ function startGame(save, savedOk, run){
     GS.genRooms = GS.npcs.map(n => n.room);
   }
   const npcRooms = {}; GS.genRooms.forEach(room => npcRooms[room] = true);
-  for (let f=1; f<=FLOORS; f++) GS.maps["F"+f] = makeFloor(f, seed, home, npcRooms);
-  GS.maps.ST = makeStreets(seed);
-  GS.maps.KB = makeShop("KB", seed); GS.maps.PH = makeShop("PH", seed);
+  GS.maps.ST = makeCityMap(seed);
+  if (!run || !run.cityV){ const extra = makeExtraNPCs(seed, GS.maps.ST.blds, save, 100); GS.npcs = GS.npcs.filter(n => !n.bld).concat(extra); }
+  for (let f=1; f<=FLOORS; f++) GS.maps["F"+f] = makeFloor(f, seed, home, npcRooms, HOME_B);
+  
   if (run){
     for (let f=1; f<=FLOORS; f++) (run.doors[f] || []).forEach((st, i) => { const d = GS.maps["F"+f].doors[i]; if (d){ d.open = !!st[0]; d.locked = !!st[1]; d.tried = !!st[2]; } });
     Object.assign(GS, { t: run.t, mapKey: run.mapKey, px: run.px, py: run.py, a: run.a, aim: run.a, hp: run.hp, phoneDead: run.phoneDead, watch: run.watch, items: run.items, alarms: run.alarms, kills: run.kills || 0,
       hunger: run.hunger ?? 25, thirst: run.thirst ?? 30, equip: run.equip || { bp:null, hand:"fists" }, itemDay: run.itemDay ?? null });
     if (Array.isArray(run.inv)) run.inv.forEach(it => { if (ITEMS[it.id]) addItem(it.id, 1); });
     else if (run.inv) GS.inv = { items: run.inv.items.filter(it => ITEMS[it.id]), sel:null };
-    if (run.conts) Object.entries(run.conts).forEach(([k, arr]) => { const mm = GS.maps[k]; if (!mm) return; let i = 0; mm.furn.forEach(o => { if (o.cont && arr[i]){ o.cont.items = arr[i]; } if (o.cont) i++; }); });
-    if (run.picks) Object.entries(run.picks).forEach(([k, arr]) => { if (GS.maps[k]) GS.maps[k].picks = arr; });
-    if (run.visited) run.visited.forEach(k => { if (GS.maps[k]) GS.maps[k].visited = true; });
+    const fresh = !run.cityV, drop = k => fresh && (k === "ST" || k === "KB" || k === "PH");
+    const strip = o => o ? Object.fromEntries(Object.entries(o).filter(([k]) => !drop(k))) : {};
+    GS.pend = { conts: strip(run.conts), picks: strip(run.picks), doors: run.doorsX || {}, visited: (run.visited || []).filter(k => !drop(k)), infs: run.infs || {} };
+    Object.values(GS.maps).forEach(mm => applyPending(mm));
+    new Set(Object.keys(GS.pend.conts).concat(Object.keys(GS.pend.picks), Object.keys(GS.pend.doors), Object.keys(GS.pend.infs), GS.pend.visited)).forEach(k => { if (!GS.maps[k]) getMap(k); });
+    Object.assign(GS, { wps: run.wps || [], buffs: run.buffs || [], dep: run.dep || {}, lastUse: run.lastUse || {}, statPerm: run.statPerm || {} });
+    if (fresh){
+      if (["ST","KB","PH"].includes(GS.mapKey)){ GS.mapKey = "ST"; GS.px = GS.maps.ST.spawn.x; GS.py = GS.maps.ST.spawn.y; GS.a = GS.maps.ST.spawn.a; }
+      GS.items.forEach(it => { if (["ST","KB","PH"].includes(it.map)){ it.map = "F" + home.floor; it.x = home.clockPos.x; it.y = home.clockPos.y; } });
+      GS.npcs.forEach(n => { if (n.mode === "wait" && n.wait && ["ST","KB","PH"].includes(n.wait.map)){ n.mode = "home"; n.wait = null; } });
+    }
     GS.alarms.forEach(al => { if (al.on && al.next <= GS.t) al.next = nextRing(al, GS.t); });
   } else {
     GS.px = home.startPos.x; GS.py = home.startPos.y; GS.a = home.startAng; GS.aim = GS.a;
@@ -2690,7 +3654,10 @@ function serializeRun(){
   return { version:1, charCreated: GS.save.created, savedAt: Date.now(), seed: GS.seed, home: { floor: GS.home.floor, number: GS.home.number }, genRooms: GS.genRooms,
     t: GS.t, t0: GS.t0, mapKey: GS.mapKey, px: GS.px, py: GS.py, a: GS.a, hp: GS.hp, inv: { items: GS.inv.items }, equip: GS.equip, hunger: GS.hunger, thirst: GS.thirst, itemDay: GS.itemDay,
     conts: Object.fromEntries(Object.values(GS.maps).map(mm => [mm.key, mm.furn.filter(o => o.cont).map(o => o.cont.items)])),
-    picks: Object.fromEntries(Object.values(GS.maps).map(mm => [mm.key, mm.picks])), visited: Object.values(GS.maps).filter(mm => mm.visited).map(mm => mm.key), phoneDead: GS.phoneDead, watch: GS.watch, items: GS.items, alarms: GS.alarms, kills: GS.kills, npcs, bs, doors };
+    picks: Object.fromEntries(Object.values(GS.maps).map(mm => [mm.key, mm.picks])), visited: Object.values(GS.maps).filter(mm => mm.visited).map(mm => mm.key), phoneDead: GS.phoneDead,
+    cityV: CITY_V, wps: GS.wps, buffs: GS.buffs, dep: GS.dep, lastUse: GS.lastUse, statPerm: GS.statPerm,
+    doorsX: Object.fromEntries(Object.values(GS.maps).filter(mm => mm.kind === "floor" && mm.bld && mm.bld !== "H").map(mm => [mm.key, mm.doors.map(d => [d.open ? 1 : 0, d.locked ? 1 : 0, d.tried ? 1 : 0])])),
+    infs: Object.fromEntries(Object.values(GS.maps).filter(mm => mm.key !== "ST").map(mm => [mm.key, mm.ents.filter(e => e.type === "inf" && !e.dead && !e.bs).map(e => ({ x:e.x, y:e.y, hp:e.hp, maxHp:e.maxHp, spd:e.spd, look:e.look }))]).filter(([k, a]) => a.length)), watch: GS.watch, items: GS.items, alarms: GS.alarms, kills: GS.kills, npcs, bs, doors };
 }
 function saveRun(auto){
   if (!GS || GS.dead) return false;
@@ -2707,7 +3674,7 @@ function renderSaveInfo(){
 }
 function setKeysHint(){
   $("h-keys").hidden = GS.hintsHidden;
-  $("h-keys").innerHTML = `<b>WASD</b> move · <b>Mouse ←→</b> turn · <b>Mouse ↑↓</b> aim distance · <b>Shift</b> sprint · <b>Left-click</b> punch / shoot / throw · <b>Q</b> switch hands · <b>R</b> reload · <b>E</b> interact · <b>Hold T</b> check clock · <b>I</b> inventory · <b>Esc</b> pause · <b>H</b> hide`;
+  $("h-keys").innerHTML = `<b>WASD</b> move · <b>Mouse ←→</b> turn · <b>Mouse ↑↓</b> aim distance · <b>Shift</b> sprint · <b>Left-click</b> punch / shoot / throw · <b>Q</b> switch hands · <b>R</b> reload · <b>E</b> interact · <b>Hold T</b> check clock · <b>M</b> map · <b>I</b> inventory · <b>Esc</b> pause · <b>H</b> hide`;
 }
 function gResize(){
   gDPR = Math.min(2, devicePixelRatio || 1); gW = innerWidth; gH = innerHeight;
@@ -2725,12 +3692,11 @@ addEventListener("resize", () => { if (!$("game").hidden) gResize(); });
 /* ---------------- map switching & entities ---------------- */
 function setMap(key){
   Object.values(GS.maps).forEach(m => { if (m.key !== key) m.chunks.clear(); });
-  const m = GS.maps[key]; GS.mapKey = key;
-  m.ents = m.ents.filter(e => e.type === "inf" || e.type === "surv");
-  if (key !== "ST") m.ents = [];
+  const m = getMap(key); GS.mapKey = key;
+  m.ents = m.ents.filter(e => (e.type === "inf" && !e.dead) || (e.type === "surv" && key === "ST"));
   GS.npcs.forEach(n => {
     if (!n.alive) return;
-    if (n.mode === "home" && m.kind === "floor" && n.floor === m.f){ const s = m.apts[n.room].stand; m.ents.push(mkEnt("npc", s.x, s.y, { npc:n, look:n.look, a: Math.PI })); }
+    if (n.mode === "home" && m.kind === "floor" && n.floor === m.f && bldOf(n) === (m.bld || "H")){ const s = m.apts[n.room].stand; m.ents.push(mkEnt("npc", s.x, s.y, { npc:n, look:n.look, a: Math.PI })); }
     if (n.mode === "wait" && n.wait && n.wait.map === key) m.ents.push(mkEnt("ally", n.wait.x, n.wait.y, { npc:n, look:n.look }));
   });
   GS.flow = null; GS.flowT = 0;
@@ -2756,11 +3722,12 @@ addEventListener("keydown", e => {
   if (e.code === "Backquote"){ e.preventDefault(); GS.panel === "g-dev" ? closePanels() : openPanel("g-dev"); return; }
   if (e.code === "KeyI" || e.code === "Tab"){ e.preventDefault(); if (GS.panel === "g-talk") return; GS.panel === "g-inv" ? closePanels() : openPanel("g-inv"); return; }
   if (GS.panel) return;
-  if (["KeyW","KeyA","KeyS","KeyD","ShiftLeft","ShiftRight","KeyE","KeyF","KeyR","KeyG","KeyQ","KeyT","KeyH","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
+  if (["KeyW","KeyA","KeyS","KeyD","ShiftLeft","ShiftRight","KeyE","KeyF","KeyR","KeyG","KeyQ","KeyM","KeyT","KeyH","ArrowUp","ArrowDown","ArrowLeft","ArrowRight","Space"].includes(e.code)) e.preventDefault();
   if (!e.repeat){
     if (e.code === "KeyE") interact("E");
     if (e.code === "KeyF") interact("F");
     if (e.code === "KeyG") interact("G");
+    if (e.code === "KeyM") openMap();
     if (e.code === "KeyR") startReload();
     if (e.code === "KeyQ") cycleHand();
     if (e.code === "KeyH"){ GS.hintsHidden = !GS.hintsHidden; setKeysHint(); }
@@ -2797,7 +3764,7 @@ document.addEventListener("pointerlockerror", () => { lockFailed = true; });
 function releaseLock(){ if (pointerLocked && document.exitPointerLock){ expectUnlock = true; document.exitPointerLock(); } }
 /* ---------------- panels ---------------- */
 function openPanel(id){
-  releaseLock(); ["g-pause","g-inv","g-dev","g-alarm","g-talk","g-craft","g-rest"].forEach(p => { if (p !== id) $(p).hidden = true; }); if (id !== "g-inv") GS.lootC = null;
+  releaseLock(); ["g-pause","g-inv","g-dev","g-alarm","g-talk","g-craft","g-rest","g-map"].forEach(p => { if (p !== id) $(p).hidden = true; }); if (id !== "g-inv") GS.lootC = null;
   GS.panel = id; $(id).hidden = false; keys.clear();
   if (id === "g-inv"){ GS.inv.sel = null; renderInv(); }
   if (id === "g-craft") renderCraft();
@@ -2806,8 +3773,10 @@ function openPanel(id){
   if (id === "g-pause") renderSaveInfo();
   if (id !== "g-talk"){ const b = $(id).querySelector("button"); if (b) b.focus(); }
 }
-function closePanels(){ ["g-pause","g-inv","g-dev","g-alarm","g-talk","g-dead","g-craft","g-rest"].forEach(p => $(p).hidden = true); if (GS){ GS.panel = null; GS.lootC = null; } }
+function closePanels(){ ["g-pause","g-inv","g-dev","g-alarm","g-talk","g-dead","g-craft","g-rest","g-map"].forEach(p => $(p).hidden = true); if (GS){ GS.panel = null; GS.lootC = null; } }
 $("craft-close").onclick = () => { closePanels(); requestLock(); };
+$("map-close").onclick = () => { closePanels(); requestLock(); };
+$("map-cv").addEventListener("click", mapClick);
 $("rest-cancel").onclick = () => { closePanels(); requestLock(); };
 $("p-resume").onclick = () => { closePanels(); requestLock(); };
 $("p-save").onclick = () => saveRun(false);
@@ -2853,10 +3822,11 @@ function renderDev(extra){
 document.querySelectorAll("[data-dev]").forEach(b => b.onclick = () => {
   const k = b.dataset.dev; let extra = "";
   if (k === "digital" || k === "analog") GS.watch = k;
-  if (k === "gun"){ if (!gunItem()) addItem("handgun", 1, { mag:12 }); const left = addItem("ammo9", 24); extra = left ? "Inventory full; some rounds didn't fit." : "Handgun and 24 rounds added. Press Q to hold it."; }
-  if (k === "mats"){ [["cloth",10],["scrap",10],["tape",3],["gunpowder",6],["fireworks",1]].forEach(([id,n]) => addItem(id, n)); extra = "Materials added (whatever fit)."; }
+  if (k === "gun"){ if (!gunItem()) addItem("handgun", 1, { mag:12, cap:12 }); const left = addItem("ammo9", 24); extra = left ? "Inventory full; some rounds didn't fit." : "Handgun and 24 rounds added. Press Q to hold it."; }
+  if (k === "mats"){ [["cloth",10],["scrap",10],["tape",3],["gunpowder",6],["paper",10],["wood",6],["springs",4]].forEach(([id,n]) => addItem(id, n)); extra = "Materials added (whatever fit)."; }
+  if (k === "maps"){ addItem("map_l", 1); addItem("fabtool", 1, { uses:5 }); extra = "Large map and fabrication tool added. Press M for the map."; }
   if (k === "food"){ [["water",2],["onigiri",2],["bandage_s",1],["bottle",2],["can",2]].forEach(([id,n]) => addItem(id, n)); extra = "Supplies added (whatever fit)."; }
-  if (k === "kb"){ closePanels(); goTo("KB", GS.maps.KB.spawn, "Entering Sunrise Mart…"); return; }
+  if (k === "kb"){ const bs = GS.maps.ST.blds.filter(b => b.kind !== "home" && b.kind !== "subway"); GS.devB = ((GS.devB ?? -1) + 1) % bs.length; const b = bs[GS.devB]; closePanels(); goTo("ST", b.out, `Going to ${b.name} (${BKIND[b.kind].label})…`); return; }
   if (k === "phone") GS.phoneDead = false;
   if (k === "reset"){ GS.watch = null; GS.phoneDead = true; GS.smearT = null; }
   if (k === "blood"){ if (GS.watch) GS.smearT = 0; else extra = "Give yourself a watch first."; }
@@ -2937,7 +3907,7 @@ function updateAlarms(dt){
   if (GS.ringing.alertT <= 0){
     GS.ringing.alertT = 1;
     if (m.kind === "street") makeNoise(m, src.x, src.y, 600);
-    else GS.npcs.forEach(n => { if (n.alive && n.mode === "home" && n.floor === m.f && n.alarmAnnoy < 4){ const s = m.apts[n.room].stand; if (Math.hypot(s.x - src.x, s.y - src.y) < 700 && Math.random() < 0.1){ n.rel = clamp(n.rel - 1, -100, 100); n.alarmAnnoy++; } } });
+    else GS.npcs.forEach(n => { if (n.alive && n.mode === "home" && n.floor === m.f && bldOf(n) === (m.bld || "H") && n.alarmAnnoy < 4){ const s = m.apts[n.room].stand; if (Math.hypot(s.x - src.x, s.y - src.y) < 700 && Math.random() < 0.1){ n.rel = clamp(n.rel - 1, -100, 100); n.alarmAnnoy++; } } });
   }
   const el = $("h-alarm");
   el.hidden = vol <= 0;
@@ -2951,8 +3921,9 @@ function moveSolid(m, tx, ty){ return sightSolid(m, tx, ty) || m.block[ty*m.w+tx
 function circleRect(cx, cy, r, x0, y0, x1, y1){ const nx = clamp(cx, x0, x1), ny = clamp(cy, y0, y1); return (cx-nx)*(cx-nx) + (cy-ny)*(cy-ny) < r*r; }
 function blockedAt(m, x, y, r){
   const tx0 = Math.floor((x-r)/T), tx1 = Math.floor((x+r)/T), ty0 = Math.floor((y-r)/T), ty1 = Math.floor((y+r)/T);
-  for (let ty=ty0; ty<=ty1; ty++) for (let tx=tx0; tx<=tx1; tx++) if (moveSolid(m, tx, ty) && circleRect(x, y, r, tx*T, ty*T, (tx+1)*T, (ty+1)*T)) return true;
-  return false;
+  let edge = false;
+  for (let ty=ty0; ty<=ty1; ty++) for (let tx=tx0; tx<=tx1; tx++){ if (moveSolid(m, tx, ty) && circleRect(x, y, r, tx*T, ty*T, (tx+1)*T, (ty+1)*T)) return true; if (m.part && m.part[ty*m.w+tx]) edge = true; }
+  return edge && m.openAt(x/T, y/T) < r/T;
 }
 function castRay(m, ox, oy, dx, dy, maxD){
   let mx = Math.floor(ox/T), my = Math.floor(oy/T);
@@ -2965,6 +3936,7 @@ function castRay(m, ox, oy, dx, dy, maxD){
     if (sdx < sdy){ d = sdx; sdx += ddx; mx += sx; } else { d = sdy; sdy += ddy; my += sy; }
     if (d > maxD) return maxD;
     if (sightSolid(m, mx, my)) return d;
+    if (m.part && m.part[my*m.w+mx]){ const e = Math.min(sdx, sdy, maxD); for (let t = d + 1; t < e; t += 3){ if (m.openAt((ox + dx*t)/T, (oy + dy*t)/T) <= 0) return t; } }
   }
   return maxD;
 }
@@ -3074,7 +4046,7 @@ function updAlly(e, dt, m){
 
 /* ---------------- interaction ---------------- */
 function rectDist(px, py, o){ const nx = clamp(px, o.x0, o.x1), ny = clamp(py, o.y0, o.y1); return Math.hypot(px-nx, py-ny); }
-function npcForDoor(d){ return d.kind === "apt" ? GS.npcs.find(n => n.room === d.number && n.alive) : null; }
+function npcForDoor(d){ const m = curMap(); return d.kind === "apt" ? GS.npcs.find(n => n.room === d.number && n.alive && bldOf(n) === (m.bld || "H")) : null; }
 function findInteract(){
   const m = curMap(), fx = Math.sin(GS.aim), fy = -Math.cos(GS.aim), opts = [];
   const consider = (obj, reach, label, extra) => {
@@ -3095,7 +4067,9 @@ function findInteract(){
   });
   m.inter.forEach(o => {
     let lbl = "";
-    if (o.k === "stairs") lbl = o.dir > 0 ? (m.f < FLOORS ? `Climb to ${m.f+1}F` : "Roof access") : (m.f > 1 ? `Go down to ${m.f-1}F` : "Basement stairs");
+    if (o.k === "stairs") lbl = o.dir > 0 ? (m.f < (m.floors || FLOORS) ? `Climb to ${m.f+1}F` : "Roof access") : (m.f > 1 ? `Go down to ${m.f-1}F` : "Basement stairs");
+    if (o.k === "exit") lbl = `Leave ${m.bref ? m.bref.name : "the building"}`;
+    if (o.k === "bld"){ const b = cityB(o.id); lbl = b.kind === "subway" ? "Shibuya Station · shutters down" : b.kind === "home" ? "Enter Maison Udagawa" : `Enter ${b.name}${b.floors > 1 ? " · " + b.floors + "F" : ""}`; }
     if (o.k === "elevator") lbl = "Call elevator";
     if (o.k === "bed") lbl = "Rest";
     if (o.k === "storage") lbl = "Storage";
@@ -3103,7 +4077,6 @@ function findInteract(){
     if (o.k === "entrance") lbl = "Squeeze through the barricade";
     if (o.k === "enter") lbl = "Enter Maison Udagawa";
     if (o.k === "mailboxes") lbl = "Mailboxes";
-    if (o.k === "shop") lbl = `Enter ${SHOPS[o.key].name}`;
     if (o.k === "leave") lbl = `Leave ${m.shop ? m.shop.name : "store"}`;
     consider(o, o.k === "stairs" ? 6 : 26, lbl, { type:o.k, obj:o });
   });
@@ -3151,11 +4124,16 @@ function interact(key){
       return; }
     case "stairs": {
       const dir = it.obj.dir;
-      if (dir > 0 && m.f >= FLOORS){ toast("The door to the roof is chained shut."); return; }
+      if (dir > 0 && m.f >= (m.floors || FLOORS)){ toast("The door to the roof is chained shut."); return; }
       if (dir < 0 && m.f <= 1){ toast("The stairs down to the basement are buried under debris."); return; }
-      goTo("F" + (m.f + dir), { x:6.5*T, y:21.8*T, a:Math.PI/2 }, dir > 0 ? `Climbing to ${m.f + 1}F…` : `Heading down to ${m.f - 1}F…`);
+      goTo(floorKey(m.bld || "H", m.f + dir), { x:6.5*T, y:21.8*T, a:Math.PI/2 }, dir > 0 ? `Climbing to ${m.f + 1}F…` : `Heading down to ${m.f - 1}F…`);
       return; }
-    case "entrance": goTo("ST", GS.maps.ST.spawn, "Squeezing through the barricade…"); return;
+    case "entrance": goTo("ST", GS.maps.ST.homeB.out, "Squeezing through the barricade…"); return;
+    case "exit": goTo("ST", m.bref.out, "Heading back outside…"); return;
+    case "bld": { const b = cityB(it.obj.id);
+      if (b.kind === "subway"){ toast("Shibuya Station's shutters are down and chained. Maybe someday."); return; }
+      if (b.kind === "home"){ goTo("F1", { x:47.5*T, y:36.5*T, a:0 }, "Back inside Maison Udagawa…"); return; }
+      const key = b.tower ? b.id + "F1" : b.id, mm = getMap(key); goTo(key, mm.spawn, `Entering ${b.name}…`); return; }
     case "enter": goTo("F1", { x:47.5*T, y:36.5*T, a:0 }, "Back inside Maison Udagawa…"); return;
     case "elevator": toast("Out of order. The elevator is stuck between floors and the call button is dead. Someone with the right skills might fix it someday."); blip(160, 0.12, 0.05, "square"); return;
     case "bed": if (inCombat()){ toast("You can't rest right now."); return; } openRest(true); return;
@@ -3167,7 +4145,6 @@ function interact(key){
       if (left === pk.n){ toast("No room in your inventory."); blip(110, 0.1, 0.05); return; }
       if (left) pk.n = left; else m.picks.splice(m.picks.indexOf(pk), 1);
       blip(520, 0.04, 0.05); toast(`Picked up ${ITEMS[pk.id].n}${left ? " (some didn't fit)" : ""}.`); if (pk.id === "handgun") toast("You found a handgun. Press Q to hold it, R to reload."); return; }
-    case "shop": goTo(it.obj.key, GS.maps[it.obj.key].spawn, `Entering ${SHOPS[it.obj.key].name}…`); return;
     case "leave": goTo("ST", m.shop.street, "Heading back outside…"); return;
     case "mailboxes": toast("Rows of mailboxes, most stuffed with unread notices dated just before the outbreak."); return;
     case "item": if (GS.ringing && !hasItem("alarm")){ silenceAlarm(); return; } if (inCombat()){ toast("You can't stop to check a clock in the middle of a fight."); return; } GS.reading = { t:0, dur:1.3, src:"stand", x:GS.px, y:GS.py }; return;
@@ -3186,7 +4163,7 @@ function knock(door){
 }
 function relTier(v){ return v < 0 ? "Hostile" : v < 20 ? "Wary" : v < 40 ? "Neutral" : v < 60 ? "Friendly" : v < 80 ? "Trusted" : "Close"; }
 function tone(v){ return v < 0 ? "hostile" : v < 20 ? "wary" : v < 45 ? "neutral" : "warm"; }
-function gainMult(){ return 0.7 + GS.save.stats.charisma / 100 * 0.6; }
+function gainMult(){ return 0.7 + stat("charisma") / 100 * 0.6; }
 function changeRel(n, d, raw){
   const before = relTier(n.rel), dd = d > 0 && !raw ? Math.max(1, Math.round(d * gainMult())) : Math.round(d);
   n.rel = clamp(n.rel + dd, -100, 100);
@@ -3276,7 +4253,7 @@ function talkIntro(){
   const dd = changeRel(n, d);
   if (n.rel >= 12){ n.known = true; npcSay(`${pickA(["...Okay. You sound alright.","Another survivor. Good.","Thank god, a normal voice."])} I'm ${n.name}. I was ${art(n.job)} ${n.job} before all this.`, dd); }
   else npcSay(pickA([`Room ${GS.home.number}? I don't know you. I'll keep my name to myself for now.`, "Names can wait. I don't know you yet."]), dd);
-  if ((hasT(n,"deceptive") || hasT(n,"opportunist")) && GS.save.stats.sense >= 50) narrate("Something in their voice doesn't sit right with you.");
+  if ((hasT(n,"deceptive") || hasT(n,"opportunist")) && stat("sense") >= 50) narrate("Something in their voice doesn't sit right with you.");
   talkChoices();
 }
 function talkBeg(){
@@ -3312,7 +4289,7 @@ function talkHelp(){
 }
 function talkComeIn(){
   const n = TALK.npc; youSay("Can I come in?");
-  if (n.rel >= 40){ changeRel(n, 1); n.invited = true; npcSay("...Alright. Give me a second."); narrate("You hear the lock turn and the door opens."); const d = GS.maps["F"+n.floor].apts[n.room].door; d.locked = false; d.open = true; n.seen = true; TALK.via = "person"; }
+  if (n.rel >= 40){ changeRel(n, 1); n.invited = true; npcSay("...Alright. Give me a second."); narrate("You hear the lock turn and the door opens."); const d = getMap(npcKey(n)).apts[n.room].door; d.locked = false; d.open = true; n.seen = true; TALK.via = "person"; }
   else if (n.rel >= 20) npcSay("Not yet. I don't know you well enough.");
   else npcSay("Absolutely not.", changeRel(n, -2));
   TALK.used.add("in"); talkChoices();
@@ -3331,13 +4308,13 @@ function allyCmd(cmd){
     youSay("Come with me.");
     if (n.mode === "home"){
       let e = npcEnt(n);
-      if (TALK.via === "door"){ narrate(`${n.first} unlocks the door and steps out.`); const apt = GS.maps["F"+n.floor].apts[n.room]; if (e) m.ents.splice(m.ents.indexOf(e), 1); e = mkEnt("ally", apt.outside.x + 18, apt.outside.y, { npc:n, look:n.look }); m.ents.push(e); }
+      if (TALK.via === "door"){ narrate(`${n.first} unlocks the door and steps out.`); const apt = getMap(npcKey(n)).apts[n.room]; if (e) m.ents.splice(m.ents.indexOf(e), 1); e = mkEnt("ally", apt.outside.x + 18, apt.outside.y, { npc:n, look:n.look }); m.ents.push(e); }
       else if (e){ e.type = "ally"; }
     } else { const e = npcEnt(n); if (e) e.type = "ally"; }
     n.mode = "follow"; n.wait = null; npcSay(pickA(["Right behind you.","Lead the way.","Let's go."]));
   }
   if (cmd === "wait"){ youSay("Wait here for me."); const e = npcEnt(n); n.mode = "wait"; n.wait = { map: GS.mapKey, x: e ? e.x : GS.px, y: e ? e.y : GS.py }; npcSay("I'll be right here. Don't take too long."); }
-  if (cmd === "home"){ youSay("Head back to your room. Stay safe."); const e = npcEnt(n); n.mode = "home"; n.wait = null; if (e && GS.mapKey !== "F"+n.floor) m.ents.splice(m.ents.indexOf(e), 1); else if (e){ e.type = "npc"; const s = m.apts[n.room].stand; e.x = s.x; e.y = s.y; } npcSay("Okay. Knock if you need me."); }
+  if (cmd === "home"){ youSay("Head back to your room. Stay safe."); const e = npcEnt(n); n.mode = "home"; n.wait = null; if (e && GS.mapKey !== npcKey(n)) m.ents.splice(m.ents.indexOf(e), 1); else if (e){ e.type = "npc"; const s = m.apts[n.room].stand; e.x = s.x; e.y = s.y; } npcSay("Okay. Knock if you need me."); }
   talkChoices();
 }
 function talkBye(){ const n = TALK.npc; youSay(pickA(["Take care.","I'll see you later.","Bye for now."])); npcSay(pickA(BYE[tone(n.rel)])); endTalk(); }
@@ -3364,9 +4341,9 @@ function reunion(kind, silent){
 }
 function recruitBs(n){
   const b = n.bs, e = TALK.ent;
-  const used = new Set(GS.npcs.map(x => x.room).concat([GS.home.number]));
+  const used = new Set(GS.npcs.filter(x => bldOf(x) === "H").map(x => x.room).concat([GS.home.number]));
   const free = allApartmentNumbers().filter(a => !used.has(a.number)); const apt = free[Math.random()*free.length|0];
-  if (apt){ n.floor = apt.floor; n.room = apt.number; const d = GS.maps["F"+apt.floor].apts[apt.number].door; d.locked = false; }
+  if (apt){ n.bld = "H"; n.floor = apt.floor; n.room = apt.number; const d = getMap("F"+apt.floor).apts[apt.number].door; d.locked = false; }
   n.allied = true; n.mode = "follow"; n.met = true; n.known = true; if (!GS.npcs.includes(n)) GS.npcs.push(n); b.state = "met";
   if (e) e.type = "ally";
   narrate(`${n.first} is now your ally${apt ? ` and will live in Room ${apt.number}` : ""}.`);
@@ -3384,14 +4361,14 @@ function defaultSugg(n){
 function traitText(ids){ return ids.map(t => { const tr = TRAITS.find(x => x.id === t); return tr ? `${tr.name} (${tr.desc})` : t; }).join("; "); }
 function aiPrompt(n, text){
   const tp = timeParts(), dl = daylight(), need = allyNeed(n), reunion = TALK.mode === "reunion", ctx = TALK.ctx || {};
-  const others = GS.npcs.filter(o => o !== n && o.alive && !o.isBackstory).map(o => `${o.name} in Room ${o.room} (${o.traits.map(traitName).join(", ")})`).join("; ");
+  const others = GS.npcs.filter(o => o !== n && o.alive && !o.isBackstory && bldOf(o) === bldOf(n)).map(o => `${o.name} in Room ${o.room} (${o.traits.map(traitName).join(", ")})`).join("; ");
   const prev = (n.mem || []).slice(0, TALK.memStart).slice(-14), cur0 = (n.mem || []).slice(TALK.memStart), cur = text ? cur0.slice(0, -1) : cur0;
   const sv = GS.save, sense = sv.stats.sense;
   const where = TALK.via === "door" ? `The player knocked on the door of their apartment (Room ${n.room}); they are talking through the closed door.${ctx.woken ? " The knock woke them up." : ""}${ctx.again ? " The player knocked again shortly after their last talk." : ""}`
     : reunion ? `They just ran into the player in the streets of Shibuya (${curMap().area(Math.floor(GS.px/T), Math.floor(GS.py/T))}). They had no idea the player was alive. Infected could be nearby.`
-    : `They are face to face ${GS.mapKey === "ST" ? "in the streets of Shibuya" : n.room && curMap().kind === "floor" && curMap().f === n.floor ? "near their apartment" : "inside Maison Udagawa"}.`;
+    : `They are face to face ${GS.mapKey === "ST" ? "in the streets of Shibuya" : n.room && curMap().kind === "floor" && curMap().f === n.floor ? "near their apartment" : "inside " + (curMap().bref ? curMap().bref.name : "Maison Udagawa")}.`;
   const bsLine = n.isBackstory ? `\n- They are the player's ${n.bs.relation} from before the outbreak.${n.bs.note ? " The player's backstory says: \"" + n.bs.note + "\"." : ""} The player's full backstory: """${(sv.backstory || "").slice(0, 700)}"""` : "";
-  return `You write dialogue for a character in a story-driven survival game. Setting: Shibuya, Tokyo, Day ${tp.day} after the first infections. People who get bitten turn into violent infected that are drawn to noise. Survivors hide in their apartments in a building called Maison Udagawa; the lobby is barricaded.
+  return `You write dialogue for a character in a story-driven survival game. Setting: Shibuya, Tokyo, Day ${tp.day} after the first infections. People who get bitten turn into violent infected that are drawn to noise. Survivors hide in their apartments; the player lives in Maison Udagawa, whose lobby is barricaded.
 
 CHARACTER
 - ${n.name}, ${n.age}, ${n.gender}, ${n.origin || "from Tokyo"}.${n.job ? " Before the outbreak: " + n.job + "." : ""}
@@ -3399,7 +4376,7 @@ CHARACTER
 - Social trait: ${socialLabel(n.social)}.
 - Way of speaking: ${n.voice}. Quirk: ${n.quirk}.
 - Right now they ${n.situation}.
-- Secret (only reveal it if they trust the player a lot, relationship 60+, or if the player cleverly draws it out): ${n.secret}.${n.room ? "\n- Lives in Room " + n.room + "." : ""}${bsLine}
+- Secret (only reveal it if they trust the player a lot, relationship 60+, or if the player cleverly draws it out): ${n.secret}.${n.room ? "\n- Lives in Room " + n.room + " of " + bName(bldOf(n)) + "." : ""}${bsLine}
 - Other residents they know of: ${others || "none"}.
 - Facts they've already said about themselves (stay consistent): ${(n.facts || []).join(" | ") || "none yet"}.
 - Rumors they may have heard: ${LORE[n.loreIdx % LORE.length]} / ${LORE[(n.loreIdx + 3) % LORE.length]}
@@ -3472,7 +4449,7 @@ function aiApply(res, text, opts){
   GS.npcs.forEach(o => { if (o !== n && !o.known && !o.hinted && o.first && reply.includes(o.first)) o.hinted = true; });
   if (typeof res.remember === "string" && res.remember.trim()){ n.facts = n.facts || []; const f = res.remember.trim().slice(0, 140); if (!n.facts.includes(f)) n.facts.push(f); if (n.facts.length > 10) n.facts.shift(); }
   if (res.let_in === true && TALK.via === "door" && n.rel >= 40 && n.room){
-    const dr = GS.maps["F"+n.floor].apts[n.room].door; dr.locked = false; dr.open = true; n.invited = true; n.seen = true; TALK.via = "person";
+    const dr = getMap(npcKey(n)).apts[n.room].door; dr.locked = false; dr.open = true; n.invited = true; n.seen = true; TALK.via = "person";
     narrate("You hear the lock turn, and the door opens.");
   }
   if (res.join === true && !n.allied){
@@ -3583,6 +4560,7 @@ const FIRST_P = {
   "owes money to dangerous people and is almost relieved by the chaos":"owe money to some dangerous people, and part of me is relieved by all this",
   "watched someone get bitten in the stairwell and did nothing":"watched someone get bitten in the stairwell, and I did nothing",
   "has been hurt worse than they let on":"am hurt worse than I've been letting on",
+  "is trapped in their apartment because infected are wandering the hallways":"am stuck in here because there are infected wandering the hallways",
 };
 function firstP(s){ if (FIRST_P[s]) return FIRST_P[s]; return String(s || "").replace(/^is /,"am ").replace(/^has /,"have ").replace(/^hasn't /,"haven't ").replace(/^keeps /,"keep ").replace(/^knows /,"know ").replace(/^owes /,"owe ").replace(/\btheir\b/g,"my"); }
 function needFor(n){ const m = SIT_NEED.find(([k]) => (n.situation || "").includes(k)); return m ? m[1] : pickA(NEEDS); }
@@ -3763,7 +4741,7 @@ function localReply(n, text, forced){
   const intent = forced || detectIntent(text || ""), reunion = TALK.mode === "reunion", ctx = { narr:null, allowTag:true };
   const res = { reply:"", delta:0, reveal_name:false, let_in:false, join:false, end:false, remember:null, narration:null, suggestions:[] };
   n.topics = n.topics || {}; const seen = k => n.topics[k] === day() || (n.topics[k] && k !== "howare" && k !== "helpout");
-  const tn = tone(n.rel), sense = GS.save.stats.sense || 50;
+  const tn = tone(n.rel), sense = stat("sense");
   let line = "", key = intent;
   if (!text && !forced){
     // opening line
@@ -3815,7 +4793,7 @@ function localReply(n, text, forced){
       n.topics.outbreak = day(); line = pickLine(n, "outbreak", "any"); break;
     case "people": {
       if (n.rel < 20){ line = pickLine(n, "people_low"); d = 0; break; }
-      const o = GS.npcs.find(x => x !== n && x.alive && !x.known && !x.hinted && !x.isBackstory) || GS.npcs.find(x => x !== n && x.alive && !x.isBackstory && !x.known);
+      const o = GS.npcs.find(x => x !== n && x.alive && bldOf(x) === bldOf(n) && !x.known && !x.hinted && !x.isBackstory) || GS.npcs.find(x => x !== n && x.alive && bldOf(x) === bldOf(n) && !x.isBackstory && !x.known);
       if (o){ o.hinted = true; line = fillLine(pickLine(n, "people_hint"), n, { other: o.name, oroom: o.room, ohint: TRAIT_HINT[o.traits[0]] }); }
       else line = pickLine(n, "people_none");
       n.topics.people = day(); break; }
@@ -3928,7 +4906,7 @@ function punch(){
   m.ents.forEach(e => { if (e.type !== "inf" || e.dead) return; const dx = e.x - GS.px, dy = e.y - GS.py, d = Math.hypot(dx, dy); if (d > 40) return; if ((dx*fx + dy*fy)/(d||1) < 0.55) return; if (d < bd){ bd = d; best = e; } });
   if (m.kind !== "floor") makeNoise(m, GS.px, GS.py, best ? 190 : 140);
   if (best){
-    const dmg = (9 + GS.save.stats.fitness*0.09) * (weak ? 0.5 : 1) * (0.85 + Math.random()*0.3) * (1 + 0.15*GS.adr);
+    const dmg = (9 + stat("fitness")*0.09) * (weak ? 0.5 : 1) * (0.85 + Math.random()*0.3) * (1 + 0.15*GS.adr);
     GS.combatT = Math.max(GS.combatT, 3);
     best.hp -= dmg; best.vx = fx*230; best.vy = fy*230; best.stun = 0.32; best.state = "chase"; best.tgt = { x:GS.px, y:GS.py, who:"player" }; best.lx = GS.px; best.ly = GS.py; best.wind = 0;
     addBlood(m, best.x, best.y, 5); sPunchHit(); GS.shake = Math.max(GS.shake, 2);
@@ -4048,7 +5026,7 @@ function update(dt){
       const m = curMap();
       GS.px = tr.pos.x; GS.py = tr.pos.y; GS.a = tr.pos.a; GS.aim = GS.a;
       tr.carry.forEach((e, i) => { const p = findWalkNear(m, GS.px - Math.sin(GS.a)*30 + (i%2 ? 22 : -22), GS.py + Math.cos(GS.a)*30) || { x:GS.px, y:GS.py }; e.x = p.x; e.y = p.y; m.ents.push(e); });
-      if (m.kind === "shop" && !m.visited){ m.visited = true; if (Math.random() < 0.5){ const fl = []; for (let y=2;y<m.h-6;y++) for (let x=2;x<m.w-2;x++) if (!moveSolid(m,x,y)) fl.push([x,y]); const p = fl[Math.random()*fl.length|0]; if (p){ const e = spawnInf(m, (p[0]+0.5)*T, (p[1]+0.5)*T); e.state = "idle"; } } }
+      if (m.kind !== "street") spawnInterior(m);
       if (m.kind === "street"){ GS.streetTime = 0; GS.spawnT = 1; const n0 = daylight() > 0.5 ? 5 : 9; for (let i=0;i<n0;i++) trySpawn(m, 520, 1300); }
       $("g-fade").style.opacity = 0;
     }
@@ -4076,7 +5054,7 @@ function update(dt){
   if (keys.has("KeyS") || keys.has("ArrowDown")) f -= 1;
   if (keys.has("KeyD")) s += 1;
   if (keys.has("KeyA")) s -= 1;
-  let speed = 70 + (GS.save.stats.agility || 70) * 0.5;
+  let speed = 70 + stat("agility") * 0.5;
   const wantSprint = (keys.has("ShiftLeft") || keys.has("ShiftRight")) && f > 0;
   const canSprint = wantSprint && !GS.exhausted && stamina() > 0.5 && !holdingClock;
   if (canSprint) speed *= 1.65;
@@ -4085,7 +5063,7 @@ function update(dt){
   if (f < 0) speed *= 0.65;
   const len = Math.hypot(f, s);
   GS.moving = len > 0;
-  const stamStat = GS.save.stats.stamina || 70;
+  const stamStat = stat("stamina"), recM = staminaRecMult();
   if (len > 0){
     const fx = Math.sin(GS.a), fy = -Math.cos(GS.a), rx = Math.cos(GS.a), ry = Math.sin(GS.a);
     const vx = (fx*f + rx*s*0.85)/len * speed, vy = (fy*f + ry*s*0.85)/len * speed;
@@ -4099,8 +5077,8 @@ function update(dt){
   } else GS.phase += dt * 1.2;
   // stamina: two pools that recover at different speeds
   if (canSprint && len > 0){ GS.sDebt = Math.min(100 - GS.pDebt, GS.sDebt + 12 * (70/stamStat) * (1 - 0.4*GS.adr) * dt); GS.sDelay = 1.2; }
-  else { GS.sDelay -= dt; if (GS.sDelay <= 0) GS.sDebt = Math.max(0, GS.sDebt - 7.5 * (stamStat/70) * (1 + 0.5*GS.adr) * (GS.moving ? 0.75 : 1) * needsMult() * dt); }
-  GS.pDelay -= dt; if (GS.pDelay <= 0) GS.pDebt = Math.max(0, GS.pDebt - 26 * (stamStat/70) * (1 + 0.5*GS.adr) * dt);
+  else { GS.sDelay -= dt; if (GS.sDelay <= 0) GS.sDebt = Math.max(0, GS.sDebt - 7.5 * (stamStat/70) * (1 + 0.5*GS.adr) * (GS.moving ? 0.75 : 1) * needsMult() * recM * dt); }
+  GS.pDelay -= dt; if (GS.pDelay <= 0) GS.pDebt = Math.max(0, GS.pDebt - 26 * (stamStat/70) * (1 + 0.5*GS.adr) * recM * dt);
   if (stamina() <= 0.5) GS.exhausted = true; if (GS.exhausted && stamina() >= 30) GS.exhausted = false;
   if (GS.t - GS.lastHurtT > 360 && GS.hp < 100) GS.hp = Math.min(100, GS.hp + dt*0.4);
   // body feedback sounds
@@ -4165,12 +5143,13 @@ function update(dt){
   if (m.kind === "shop"){ GS.wasHome = false; $("h-floor").textContent = ""; rmEl.classList.remove("home"); rmEl.textContent = m.shop.name; $("h-place").textContent = `${m.shop.kind} · Shibuya, Tokyo`; }
   else if (m.kind === "street"){ GS.wasHome = false; $("h-floor").textContent = ""; rmEl.classList.remove("home"); rmEl.textContent = m.area(Math.floor(tx), Math.floor(ty)); $("h-place").textContent = "Streets · Shibuya, Tokyo"; }
   else {
-    $("h-floor").textContent = m.f + "F"; $("h-place").textContent = "Maison Udagawa · Shibuya, Tokyo";
+    $("h-floor").textContent = m.f + "F"; $("h-place").textContent = (m.bref ? m.bref.name : "Maison Udagawa") + " · Shibuya, Tokyo";
     const rm = m.rooms.find(r => tx >= r.x0 && tx < r.x1+1 && ty >= r.y0 && ty < r.y1+1);
     const nowHome = !!(rm && rm.home);
     if (nowHome && !GS.wasHome && performance.now() - GS.lastAutoSave > 20000) saveRun(true);
     GS.wasHome = nowHome;
-    if (rm){ const owner = GS.npcs.find(n => n.room === rm.number && n.alive); rmEl.textContent = rm.home ? `Room ${rm.number} · Home quarters` : owner && owner.known ? `Room ${rm.number} · ${owner.first}'s place` : `Room ${rm.number}`; rmEl.classList.toggle("home", rm.home); }
+    if (rm && !rm.number){ rmEl.classList.remove("home"); rmEl.textContent = rm.label || "Room"; }
+    else if (rm){ const owner = GS.npcs.find(n => n.room === rm.number && n.alive && bldOf(n) === (m.bld || "H")); rmEl.textContent = rm.home ? `Room ${rm.number} · Home quarters` : owner && owner.known ? `Room ${rm.number} · ${owner.first}'s place` : `Room ${rm.number}`; rmEl.classList.toggle("home", rm.home); }
     else { rmEl.classList.remove("home"); rmEl.textContent = tx < 12.5 ? "Stairwell" : (m.f === 1 && ty > 25 && tx > 30 && tx < 64) ? "Lobby" : "Corridor"; }
   }
 }
@@ -4262,7 +5241,7 @@ function render(dt){
   const breath = used > 0.45 ? Math.sin(performance.now()/1000 * (4 + used*5)) * 0.012 * used : 0;
   const zEff = zoom * GS.zoomMul * (1 + 0.2 * Math.pow(used, 1.6) + breath); GS.zEff = zEff;
   const look = Math.min(GS.aimDist * 0.32, gH * 0.16);
-  const sh = GS.shake, cx = gW/2 + (Math.random()-0.5)*sh, cy = gH*0.6 + look + (Math.random()-0.5)*sh;
+  const sh = GS.shake * clamp(1.4 - stat("composure")/100, 0.5, 1.3), cx = gW/2 + (Math.random()-0.5)*sh, cy = gH*0.6 + look + (Math.random()-0.5)*sh;
   c.setTransform(gDPR,0,0,gDPR,0,0); c.fillStyle = "#000"; c.fillRect(0,0,gW,gH);
   const tf = ctx => { ctx.setTransform(gDPR,0,0,gDPR,0,0); ctx.translate(cx, cy); ctx.scale(zEff, zEff); ctx.rotate(-GS.a); ctx.translate(-GS.px, -GS.py); };
   tf(c);
@@ -4278,7 +5257,7 @@ function render(dt){
   m.corpses.forEach(k => drawCorpse(c, k));
   if (m.kind === "floor"){
     const h = hourNow();
-    GS.npcs.forEach(n => { if (!n.alive || n.mode !== "home" || n.floor !== m.f || dl > 0.7) return; const asleep = n.sleepS > n.sleepE ? (h >= n.sleepS || h < n.sleepE) : (h >= n.sleepS && h < n.sleepE); if (asleep) return;
+    GS.npcs.forEach(n => { if (!n.alive || n.mode !== "home" || n.floor !== m.f || bldOf(n) !== (m.bld || "H") || dl > 0.7) return; const asleep = n.sleepS > n.sleepE ? (h >= n.sleepS || h < n.sleepE) : (h >= n.sleepS && h < n.sleepE); if (asleep) return;
       const d = m.apts[n.room].door; if (d.open) return; const y = d.swing.y < 0 ? d.y0*T - 1 : (d.y1+1)*T - 3; c.fillStyle = "rgba(255,190,110,.55)"; c.fillRect(d.x0*T + 6, y, (d.x1-d.x0+1)*T - 12, 4); });
     m.doors.forEach(d => drawDoor(c, d));
     c.fillStyle = (performance.now()/600|0) % 2 ? "#ff3b2a" : "#5a1810"; c.font = "700 9px 'IBM Plex Mono', monospace"; c.textAlign = "center"; c.textBaseline = "middle";
@@ -4341,7 +5320,7 @@ function render(dt){
   }
   // blood: adrenaline hides how bad it looks
   const lowHp = Math.max(0, (60 - GS.hp)/60);
-  const bv = clamp(Math.min(1, GS.blood) * 0.9 + lowHp * 0.65, 0, 1) * (1 - 0.7*GS.adr) * (GS.pain > 0 ? 0.4 : 1);
+  const bv = clamp(Math.min(1, GS.blood) * 0.9 + lowHp * 0.65, 0, 1) * (1 - 0.7*GS.adr) * (GS.pain > 0 ? 0.4 : 1) * clamp(1.3 - stat("composure")/120, 0.55, 1.2);
   if (bv > 0.01 && bloodOv){ c.globalAlpha = bv; c.drawImage(bloodOv, 0, 0, gW, gH); c.globalAlpha = 1; }
   if (GS.dead){ c.fillStyle = `rgba(20,0,0,${Math.min(0.8, GS.deadT*0.6)})`; c.fillRect(0,0,gW,gH); }
 }
@@ -4363,8 +5342,9 @@ function drawDoor(c, d){
 }
 function waypointTarget(){
   const m = curMap(), H = GS.home;
-  if (m.kind === "shop") return { x:(m.shop.door[0]+1)*T, y:(m.h-1)*T, label:"Home · leave the store" };
-  if (m.kind === "street"){ const e = m.entranceTile; return { x:(e.x+0.5)*T, y:e.y*T - 4, label:"Home · Maison Udagawa" }; }
+  if (m.kind === "shop") return { x:(m.shop.door[0]+1)*T, y:(m.h-1)*T, label:"Exit" };
+  if (m.kind === "street"){ const b = m.homeB, d = b.door; return { x:(d.x+0.5)*T, y:(d.y+0.5)*T, label:"Home · Maison Udagawa" }; }
+  if (m.bld && m.bld !== "H"){ if (m.f > 1) return { x:6.5*T, y:27*T, label:"Exit · stairs down ▼" }; const ex = m.inter.find(o => o.k === "exit"); return ex ? { x:(ex.x0+ex.x1)/2, y:(ex.y0+ex.y1)/2, label:"Exit" } : null; }
   if (m.f === H.floor){
     const apt = m.apts[H.number], rm = apt.room, tx = GS.px/T, ty = GS.py/T;
     if (tx >= rm.x0 && tx < rm.x1+1 && ty >= rm.y0 && ty < rm.y1+1) return null;
@@ -4374,6 +5354,10 @@ function waypointTarget(){
 }
 function drawWaypoint(c, cx, cy, z){
   const wp = waypointTarget(); if (!wp || GS.dead) return;
+  drawWaypointAt(c, cx, cy, z, wp, "#ff8c3c", false);
+  drawUserWaypoints(c, cx, cy, z);
+}
+function drawWaypointAt(c, cx, cy, z, wp, col, small){
   const dx = wp.x - GS.px, dy = wp.y - GS.py, ca = Math.cos(GS.a), sa = Math.sin(GS.a);
   let sx = cx + (dx*ca + dy*sa)*z, sy = cy + (-dx*sa + dy*ca)*z;
   const meters = Math.round(Math.hypot(dx, dy) * U2M);
@@ -4381,14 +5365,14 @@ function drawWaypoint(c, cx, cy, z){
   let ang = 0;
   if (!inside){ const vx = sx - cx, vy = sy - cy; ang = Math.atan2(vy, vx); const kx = (gW/2 - pad) / Math.abs(vx || 1e-6), ky = (sy < cy ? (cy - pad - 40) : (gH - cy - pad - 30)) / Math.abs(vy || 1e-6); const k = Math.min(kx, ky); sx = cx + vx*k; sy = cy + vy*k; }
   const pulse = 0.75 + 0.25*Math.sin(performance.now()/400);
-  c.save(); c.translate(sx, sy);
-  c.shadowColor = "rgba(255,122,46,.8)"; c.shadowBlur = 10;
-  if (inside){ c.rotate(Math.PI/4); c.strokeStyle = `rgba(255,140,60,${pulse})`; c.lineWidth = 2; c.strokeRect(-6, -6, 12, 12); c.fillStyle = "rgba(255,122,46,.25)"; c.fillRect(-6, -6, 12, 12); c.rotate(-Math.PI/4); }
-  else { c.rotate(ang); c.fillStyle = `rgba(255,140,60,${pulse})`; c.beginPath(); c.moveTo(12, 0); c.lineTo(-6, -8); c.lineTo(-2, 0); c.lineTo(-6, 8); c.closePath(); c.fill(); c.rotate(-ang); }
-  c.shadowBlur = 0; c.font = "600 12px 'Barlow Condensed', sans-serif"; c.textAlign = "center"; c.textBaseline = "top";
+  c.save(); c.translate(sx, sy); c.globalAlpha = pulse;
+  c.shadowColor = col; c.shadowBlur = 10; c.fillStyle = col; c.strokeStyle = col;
+  if (inside){ c.rotate(Math.PI/4); c.lineWidth = 2; c.strokeRect(-6, -6, 12, 12); c.globalAlpha = 0.25; c.fillRect(-6, -6, 12, 12); c.rotate(-Math.PI/4); }
+  else { c.rotate(ang); c.beginPath(); c.moveTo(12, 0); c.lineTo(-6, -8); c.lineTo(-2, 0); c.lineTo(-6, 8); c.closePath(); c.fill(); c.rotate(-ang); }
+  c.globalAlpha = 1; c.shadowBlur = 0; c.font = `600 ${small ? 11 : 12}px 'Barlow Condensed', sans-serif`; c.textAlign = "center"; c.textBaseline = "top";
   const label = `${wp.label} · ${meters} m`, tw = c.measureText(label).width;
   const ly = inside ? 12 : 14, lx = clamp(0, 10 + tw/2 - sx, gW - 10 - tw/2 - sx), lyy = sy + ly + 18 > gH ? -30 : ly;
-  c.fillStyle = "rgba(8,8,7,.7)"; c.fillRect(lx - tw/2 - 5, lyy - 2, tw + 10, 16); c.fillStyle = "#f6ead2"; c.fillText(label, lx, lyy);
+  c.fillStyle = "rgba(8,8,7,.7)"; c.fillRect(lx - tw/2 - 5, lyy - 2, tw + 10, 16); c.fillStyle = small ? "#bfefff" : "#f6ead2"; c.fillText(label, lx, lyy);
   c.restore();
 }
 
