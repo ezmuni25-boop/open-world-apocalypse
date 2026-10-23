@@ -3,6 +3,11 @@
   "productName": "Open World Apocalypse",
   "version": "0.5.0",
   "description": "Top-down survival game set in Shibuya, Tokyo.",
+  "homepage": "https://github.com/ezmuni25-boop/open-world-apocalypse",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ezmuni25-boop/open-world-apocalypse.git"
+  },
   "main": "main.js",
   "author": "Open World Apocalypse",
   "license": "UNLICENSED",
@@ -22,9 +27,27 @@
   "build": {
     "appId": "com.openworldapocalypse.game",
     "productName": "Open World Apocalypse",
-    "files": ["main.js", "preload.js", "game/**/*", "build/icon.png"],
-    "directories": { "buildResources": "build", "output": "dist" },
-    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+    "files": [
+      "main.js",
+      "preload.js",
+      "game/**/*",
+      "build/icon.png"
+    ],
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,
@@ -32,6 +55,13 @@
       "shortcutName": "Open World Apocalypse",
       "artifactName": "Open-World-Apocalypse-Setup-${version}.${ext}"
     },
-    "publish": [{ "provider": "github", "owner": "ezmuni25-boop", "repo": "open-world-apocalypse", "releaseType": "release" }]
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "ezmuni25-boop",
+        "repo": "open-world-apocalypse",
+        "releaseType": "release"
+      }
+    ]
   }
 }
