@@ -1,8 +1,11 @@
 name: Build and release
 
+# Runs whenever package.json changes on main (that's where the version number lives).
+# electron-builder creates the GitHub release and its v<version> tag itself.
 on:
   push:
-    tags: ["v*"]
+    branches: [main]
+    paths: ["package.json"]
   workflow_dispatch:
 
 permissions:

@@ -28,7 +28,7 @@ used, which needs no download and no account.
 
 1. Copy the new game file to `game/index.html`.
 2. Bump `"version"` in `package.json` (for example `0.5.1`).
-3. Commit, then tag and push: `git tag v0.5.1 && git push && git push --tags`.
+3. Commit and push to `main`. Changing the version in `package.json` starts the build.
 
 The **Build and release** workflow builds the Windows installer on GitHub's servers and publishes it as a
 release. Installed copies of the game see it the next time they check for updates.
