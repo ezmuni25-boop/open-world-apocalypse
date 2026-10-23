@@ -1,0 +1,37 @@
+{
+  "name": "open-world-apocalypse",
+  "productName": "Open World Apocalypse",
+  "version": "0.5.0",
+  "description": "Top-down survival game set in Shibuya, Tokyo.",
+  "main": "main.js",
+  "author": "Open World Apocalypse",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "release": "electron-builder --win --publish always"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.0"
+  },
+  "build": {
+    "appId": "com.openworldapocalypse.game",
+    "productName": "Open World Apocalypse",
+    "files": ["main.js", "preload.js", "game/**/*", "build/icon.png"],
+    "directories": { "buildResources": "build", "output": "dist" },
+    "win": { "target": [{ "target": "nsis", "arch": ["x64"] }], "icon": "build/icon.png" },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Open World Apocalypse",
+      "artifactName": "Open-World-Apocalypse-Setup-${version}.${ext}"
+    },
+    "publish": [{ "provider": "github", "owner": "ezmuni25-boop", "repo": "open-world-apocalypse", "releaseType": "release" }]
+  }
+}
