@@ -19,14 +19,6 @@ contextBridge.exposeInMainWorld("owaDesktop", {
     install: () => ipcRenderer.invoke("upd-install"),
     onStatus: (cb) => { ipcRenderer.on("upd", (e, d) => cb(d)); },
   },
-  ai: {
-    status: (model) => ipcRenderer.invoke("ai-status", model),
-    start: () => ipcRenderer.invoke("ai-start"),
-    install: () => clean(ipcRenderer.invoke("ai-install")),
-    pull: (model) => clean(ipcRenderer.invoke("ai-pull", model)),
-    chat: (prompt, json, model) => clean(ipcRenderer.invoke("ai-chat", { prompt, json, model })),
-    onProgress: (cb) => { ipcRenderer.on("ai-prog", (e, d) => cb(d)); },
-  },
   files: {
     save: (text, name) => ipcRenderer.invoke("file-save", { text, name }),
     open: () => ipcRenderer.invoke("file-open"),

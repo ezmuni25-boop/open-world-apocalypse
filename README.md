@@ -18,11 +18,9 @@ touches them. Each save file keeps a `.bak` copy of the previous version.
 **Moving a save between the web version and the desktop app:** Settings → Save transfer → Export save
 (copies a code) in one, then Settings → Save transfer → Import save in the other.
 
-## Free local AI (optional)
+## Conversations
 
-Settings → Free local AI installs [Ollama](https://ollama.com) and downloads the `llama3.2:3b` model
-(about 2 GB). Characters then answer anything you type. Without it, the built-in conversation system is
-used, which needs no download and no account.
+Characters talk through the built-in conversation system: no download, no account, and no AI needed.
 
 ## Releasing an update
 
